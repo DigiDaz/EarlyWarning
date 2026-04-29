@@ -108,6 +108,19 @@ CUSTOM_CSS = """
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        line-height: 1.4;
+    }
+    /* Pill treatment kicks in only when a directional class is present.
+       Bare .intel-card-delta (e.g., empty/baseline rows) stays plain. */
+    .intel-card-delta.delta-bear,
+    .intel-card-delta.delta-bull {
+        align-self: flex-start;
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        border: 1px solid transparent;
+        max-width: 100%;
+        box-sizing: border-box;
     }
     .intel-card-detail {
         font-size: 0.75rem;
@@ -121,9 +134,25 @@ CUSTOM_CSS = """
         text-overflow: ellipsis;
         max-height: 4.05em;
     }
-    .delta-bear { color: #f87171; }
-    .delta-bull { color: #4ade80; }
+    .delta-bear {
+        background: rgba(239, 68, 68, 0.15);
+        border-color: rgba(239, 68, 68, 0.40) !important;
+        color: #ef4444;
+    }
+    .delta-bull {
+        background: rgba(34, 197, 94, 0.15);
+        border-color: rgba(34, 197, 94, 0.40) !important;
+        color: #22c55e;
+    }
     .delta-flat { color: #9ca3af; }
+    /* High-Alert: any card whose underlying metric is currently in a
+       BREACHED / WARNING / CRITICAL state in the Threshold Monitor.
+       Red border + soft red glow makes it impossible to miss. */
+    .intel-card-breached {
+        border-color: rgba(255, 50, 50, 0.80) !important;
+        box-shadow: 0 0 12px rgba(255, 50, 50, 0.25),
+                    inset 0 0 1px rgba(255, 50, 50, 0.40);
+    }
     /* Subtle indicator shown when a card or threshold row is sitting on
        the hardcoded peace-time baseline because Perplexity returned
        0/null/missing. The number renders normally; the tag tells the
@@ -374,15 +403,16 @@ PERPLEXITY_USER_PROMPT = (
 )
 
 
-@st.cache_data(ttl=86400)
+@st.cache_data(ttl=14400)
 def fetch_price(ticker: str) -> float | None:
     """
     Pull raw close price directly from yfinance. No multipliers, no
     transforms, no synthetic data — whatever Yahoo returns is what
     the dashboard displays.
 
-    Cached for 24h: a public read-only dashboard hits yfinance once per
-    day per ticker; every visitor after the first gets the cached value.
+    Cached for 4h (14400s) so the dashboard refreshes in step with
+    major market sessions (Asia → Europe → US) instead of locking
+    everyone to a single daily snapshot.
     """
     try:
         data = yf.Ticker(ticker).history(period="2d", interval="1d")
@@ -393,12 +423,13 @@ def fetch_price(ticker: str) -> float | None:
         return None
 
 
-@st.cache_data(ttl=86400)
+@st.cache_data(ttl=14400)
 def fetch_equity_snapshot(ticker: str) -> dict:
     """Return {"price": last close, "pct_change": daily % vs prior close}.
     Either field can be None if the data is unavailable. period=5d
     guarantees we get at least two trading-day closes even after a
-    long weekend or holiday. Cached 24h alongside fetch_price."""
+    long weekend or holiday. Cached 4h alongside fetch_price so the
+    Equity Proxy Radar refreshes with each major market session."""
     out = {"price": None, "pct_change": None}
     try:
         data = yf.Ticker(ticker).history(period="5d", interval="1d")
@@ -513,7 +544,7 @@ def _extract_json_object(raw: str) -> dict | None:
     return None
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=14400, show_spinner=False)
 def fetch_perplexity_intel(api_key: str) -> dict:
     result = {
         "data": None,
@@ -1014,7 +1045,7 @@ def render_prob_bar(label: str, pct: float, base_pct: float):
 
 def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
                       fmt="{:,.0f}", suffix="", delta_decimals=0,
-                      use_baseline_fallback=True):
+                      use_baseline_fallback=True, breach=False):
     """Numeric card returning a single HTML string for the .intel-grid
     wrapper.
 
@@ -1030,8 +1061,16 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
 
     The probability engine never sees the baseline — it operates on the
     raw `intel_data` dict where missing values are still None. Fallback
-    is presentation-only."""
+    is presentation-only.
+
+    `breach=True` adds the .intel-card-breached class for the High-Alert
+    border + glow. Baseline-fallback and DATA UNAVAILABLE never show as
+    breached because we cannot honestly assert a breach without live
+    data."""
     label_safe = html.escape(label)
+    card_class = (
+        "intel-card intel-card-breached" if breach else "intel-card"
+    )
 
     if value is None and use_baseline_fallback and baseline is not None:
         value_display = f"{currency}{fmt.format(baseline)}{suffix}"
@@ -1071,7 +1110,7 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
         delta_class = "delta-bear" if delta < 0 else "delta-bull"
     value_display = f"{currency}{fmt.format(value)}{suffix}"
     return (
-        f'<div class="intel-card">'
+        f'<div class="{card_class}">'
         f'<div class="intel-card-label">{label_safe}</div>'
         f'<div class="intel-card-value">{html.escape(value_display)}</div>'
         f'<div class="intel-card-delta {delta_class}">'
@@ -1081,7 +1120,7 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
 
 
 def card_status_html(label, value_text, value_color, detail,
-                     is_baseline=False):
+                     is_baseline=False, breach=False):
     """Qualitative card returning a single HTML string. value_text=None
     → DATA UNAVAILABLE (used only when no peace-time baseline applies).
 
@@ -1089,9 +1128,16 @@ def card_status_html(label, value_text, value_color, detail,
     appended to the value and the detail line is rendered in muted
     grey. The card otherwise looks like a live nominal reading. The
     detail string can contain Perplexity-sourced text and is
-    HTML-escaped to defend against payload tampering."""
+    HTML-escaped to defend against payload tampering.
+
+    `breach=True` adds the .intel-card-breached High-Alert class on top
+    of the existing severity-colored border (e.g., Malacca elevated /
+    critical, India rice ban ACTIVE)."""
     label_safe = html.escape(label)
     detail_safe = html.escape(detail) if detail else "&nbsp;"
+    base_class = (
+        "intel-card intel-card-breached" if breach else "intel-card"
+    )
     if value_text is None:
         return (
             f'<div class="intel-card">'
@@ -1109,7 +1155,7 @@ def card_status_html(label, value_text, value_color, detail,
         "intel-card-baseline-note" if is_baseline else "intel-card-detail"
     )
     return (
-        f'<div class="intel-card" style="border-color: {color};">'
+        f'<div class="{base_class}" style="border-color: {color};">'
         f'<div class="intel-card-label">{label_safe}</div>'
         f'<div class="intel-card-value" style="color: {color};">'
         f'● {html.escape(value_text)}{baseline_tag}</div>'
@@ -1139,7 +1185,7 @@ with st.sidebar:
             'font-family:Courier New,monospace;line-height:1.6;">'
             'Mode: <span style="color:#00ffd1;">PUBLIC / READ-ONLY</span><br>'
             'Intel: <span style="color:#00ffd1;">ARMED</span><br>'
-            'Refresh: <span style="color:#9ca3af;">auto, 24h cache</span><br>'
+            'Refresh: <span style="color:#9ca3af;">auto, 4h cache</span><br>'
             'Sources: yfinance + perplexity sonar-pro'
             '</div>',
             unsafe_allow_html=True,
@@ -1183,28 +1229,37 @@ st.markdown('<h3 class="hud-title">◆ Commodity Telemetry</h3>',
 # rare and the pre-crisis $100 Brent / $2,300 Gold reference numbers
 # would mislead viewers if shown as a stand-in. Keep DATA UNAVAILABLE
 # behavior here. Baseline-fallback is reserved for Perplexity intel.
+# Breach flag mirrors the lowest tripwire in the Threshold Monitor.
+brent_v = prices["Brent"]
+ttf_v = prices["TTF"]
+gold_v = prices["Gold"]
+silver_v = prices["Silver"]
 commodity_cards = [
     card_numeric_html(
-        "BRENT CRUDE  (BZ=F)", prices["Brent"], BASELINE["Brent"],
+        "BRENT CRUDE  (BZ=F)", brent_v, BASELINE["Brent"],
         "$", True, fmt="{:,.2f}", delta_decimals=2,
         use_baseline_fallback=False,
+        breach=brent_v is not None and brent_v > 115,
     ),
     card_numeric_html(
-        "TTF GAS  (TTF=F)", prices["TTF"], BASELINE["TTF"],
+        "TTF GAS  (TTF=F)", ttf_v, BASELINE["TTF"],
         "€", True, fmt="{:,.2f}", delta_decimals=2,
         use_baseline_fallback=False,
+        breach=ttf_v is not None and ttf_v > 65,
     ),
     # Gold/Silver: raw yfinance Close, no multipliers, baseline kept at the
     # pre-crisis $2,300 / $28 reference levels for delta math.
     card_numeric_html(
-        "GOLD  (GC=F)", prices["Gold"], BASELINE["Gold"],
+        "GOLD  (GC=F)", gold_v, BASELINE["Gold"],
         "$", False, fmt="{:,.2f}", delta_decimals=2,
         use_baseline_fallback=False,
+        breach=gold_v is not None and gold_v > 4600,
     ),
     card_numeric_html(
-        "SILVER  (SI=F)", prices["Silver"], BASELINE["Silver"],
+        "SILVER  (SI=F)", silver_v, BASELINE["Silver"],
         "$", False, fmt="{:,.2f}", delta_decimals=2,
         use_baseline_fallback=False,
+        breach=silver_v is not None and silver_v > 75,
     ),
 ]
 st.markdown(
@@ -1245,9 +1300,9 @@ EQUITY_TIER_GLYPH = {
 
 
 def card_equity_html(ticker_key, snapshot):
-    """Equity proxy card. Border + delta color reflect the severity
-    tier driven by the absolute daily move; the tier label and glyph
-    match the Threshold Monitor convention."""
+    """Equity proxy card. WARNING and CRITICAL tiers (|daily move| >= 5%
+    and >= 12%) both raise the High-Alert breach state — red border,
+    soft red glow, red delta pill. NOMINAL stays plain."""
     meta = EQUITY_PROXY_META[ticker_key]
     label = f"{meta['name']}  ({ticker_key})"
     label_safe = html.escape(label)
@@ -1266,12 +1321,14 @@ def card_equity_html(ticker_key, snapshot):
             f'</div>'
         )
 
-    color = EQUITY_TIER_COLORS.get(sev or "nominal", "#9ca3af")
+    is_breach = sev in ("warning", "critical")
+    card_class = (
+        "intel-card intel-card-breached" if is_breach else "intel-card"
+    )
     glyph = EQUITY_TIER_GLYPH.get(sev or "nominal", "●")
     tier_label = (sev or "nominal").upper()
-    price_str = (
-        f"${price:,.2f}" if price is not None else "—"
-    )
+    price_str = f"${price:,.2f}" if price is not None else "—"
+
     if change is None:
         delta_html = (
             f'<div class="intel-card-delta">'
@@ -1279,13 +1336,16 @@ def card_equity_html(ticker_key, snapshot):
         )
     else:
         change_str = f"{'+' if change >= 0 else ''}{change:.2f}%"
+        # Pill: red for any tier that flags as a breach (warning or
+        # critical), plain grey-flat for nominal.
+        delta_class = "delta-bear" if is_breach else "delta-flat"
         delta_html = (
-            f'<div class="intel-card-delta" style="color: {color};">'
-            f'{glyph} {tier_label} &nbsp;·&nbsp; {change_str} &nbsp;·&nbsp; '
-            f'{proxy_safe}</div>'
+            f'<div class="intel-card-delta {delta_class}">'
+            f'{glyph} {tier_label} &nbsp;·&nbsp; {change_str} '
+            f'&nbsp;·&nbsp; {proxy_safe}</div>'
         )
     return (
-        f'<div class="intel-card" style="border-color: {color};">'
+        f'<div class="{card_class}">'
         f'<div class="intel-card-label">{label_safe}</div>'
         f'<div class="intel-card-value">{price_str}</div>'
         f'{delta_html}'
@@ -1330,24 +1390,36 @@ else:
 # width (auto-fit wraps cleanly to the next row).
 intel_cards = []
 
+# Per-metric breach flags mirror the lowest tripwire in the Threshold
+# Monitor: a single breach lights the High-Alert border + glow.
+panama_v = intel_data.get("panama_canal_neopanamax_price")
+urea_v = intel_data.get("urea_spot_price_ton")
+hormuz_v = intel_data.get("hormuz_daily_transit_count")
+helium_v = intel_data.get("helium_spot_price_mcf")
+resin_v = intel_data.get("asian_pe_pp_resin_spike")
+jet_v = intel_data.get("jet_fuel_price_ton")
+
 intel_cards.append(card_numeric_html(
     "PANAMA NEOPANAMAX  (slot $)",
-    intel_data.get("panama_canal_neopanamax_price"),
+    panama_v,
     INTEL_BASELINE["panama_canal_neopanamax_price"],
     "$", True, fmt="{:,.0f}",
+    breach=panama_v is not None and panama_v > 2_500_000,
 ))
 intel_cards.append(card_numeric_html(
     "UREA SPOT  ($/ton)",
-    intel_data.get("urea_spot_price_ton"),
+    urea_v,
     INTEL_BASELINE["urea_spot_price_ton"],
     "$", True, fmt="{:,.0f}",
+    breach=urea_v is not None and urea_v > 600,
 ))
 # Hormuz: lower transit count is the bearish event, so bearish_on_rise=False.
 intel_cards.append(card_numeric_html(
     "HORMUZ TRANSITS  (ships/day)",
-    intel_data.get("hormuz_daily_transit_count"),
+    hormuz_v,
     INTEL_BASELINE["hormuz_daily_transit_count"],
     "", False, fmt="{:.0f}",
+    breach=hormuz_v is not None and hormuz_v < 30,
 ))
 
 malacca_sev = intel_data.get("malacca_severity")
@@ -1370,25 +1442,29 @@ else:
         sev.upper(),
         SEVERITY_COLORS.get(sev, "#9ca3af"),
         malacca_status or "(no status text returned)",
+        breach=sev in ("elevated", "critical"),
     ))
 
 intel_cards.append(card_numeric_html(
     "HELIUM SPOT  ($/Mcf)",
-    intel_data.get("helium_spot_price_mcf"),
+    helium_v,
     INTEL_BASELINE["helium_spot_price_mcf"],
     "$", True, fmt="{:,.0f}",
+    breach=helium_v is not None and helium_v > 2000,
 ))
 intel_cards.append(card_numeric_html(
     "PE/PP RESIN SPIKE  (Asia)",
-    intel_data.get("asian_pe_pp_resin_spike"),
+    resin_v,
     INTEL_BASELINE["asian_pe_pp_resin_spike"],
     "", True, fmt="{:.1f}", suffix="%", delta_decimals=1,
+    breach=resin_v is not None and resin_v > 40,
 ))
 intel_cards.append(card_numeric_html(
     "JET FUEL  ($/ton)",
-    intel_data.get("jet_fuel_price_ton"),
+    jet_v,
     INTEL_BASELINE["jet_fuel_price_ton"],
     "$", True, fmt="{:,.0f}",
+    breach=jet_v is not None and jet_v > 1500,
 ))
 
 rice_ban = intel_data.get("india_rice_ban_status")
@@ -1397,6 +1473,7 @@ if rice_ban == "ACTIVE":
         "INDIA RICE EXPORT BAN", "ACTIVE", "#dc2626",
         "Indian government export ban currently in force on at least "
         "one rice category. Sovereign food-policy shock active.",
+        breach=True,
     ))
 elif rice_ban == "INACTIVE":
     intel_cards.append(card_status_html(
