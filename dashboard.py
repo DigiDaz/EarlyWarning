@@ -404,32 +404,37 @@ PROB_COLORS = {
 # Probability Matrix renders the narrative for whichever scenario
 # currently has the highest probability. Color theming is reused from
 # PROB_COLORS so the outlook card matches its bar in the matrix.
+# Narrative content sourced from the v11 Intelligence Brief (Slide 36).
+# Dict keys must stay as the existing scenario IDs ("Slow Normalization"
+# in American spelling) because they're shared with BASE_PROBS,
+# PROB_COLORS, and the adjust_probabilities engine; the bullets
+# themselves are reproduced verbatim from the v11 brief.
 SCENARIO_NARRATIVES = {
     "Best Case": [
-        "Hormuz reopens by Q3 2026.",
-        "Phased ceasefire.",
+        "Hormuz reopens by Q3 2026; Phased ceasefire.",
         "Brent retraces to $75–85.",
+        "EU LNG storage refills by Oct 2026.",
         "Asian manufacturing recovers within Q4.",
+        "Helium normalises 6-9 months post-flow.",
     ],
     "Slow Normalization": [
-        "Partial Hormuz reopening end-2026.",
-        "Repairs grind on Gulf infrastructure.",
+        "Partial Hormuz reopening end-2026; Iran retains harassment "
+        "capability.",
         "Brent $90–105 sustained.",
-        "Sticky 5% inflation.",
+        "Asian factories at 70-80% throughout 2026.",
+        "Helium rationing through 2027; Sticky 5% inflation.",
     ],
     "Base Case": [
-        "Hormuz remains contested through 2027.",
-        "Ras Laffan offline 3+ years.",
-        "Brent $100–120 sustained.",
-        "Winter 2026/27 EU gas crisis.",
-        "Multiple food-export bans cascade.",
+        "Hormuz contested through 2027; Ras Laffan offline 3+ years.",
+        "Brent $100–120 sustained; Winter 2026/27 EU gas crisis.",
+        "Major HBM/GPU launch slips; Multiple food-export bans cascade.",
     ],
     "Tail Risk": [
-        "Cascading breakdown.",
-        "Malacca incident or subsea cable attacks.",
-        "Brent $130–160+.",
-        "Hospital supply rationing.",
-        "Recession in EU and US.",
+        "Cascading breakdown (Malacca/subsea cable attacks); Asian "
+        "manufacturing collapse.",
+        "Brent $130–160+; Multiple state energy emergencies.",
+        "Hospital supply rationing; Recession in EU and US.",
+        "AI capex pushed to 2028; Sub-Saharan food crisis.",
     ],
 }
 
@@ -1658,13 +1663,29 @@ elif intel_meta["fetched_at"]:
 
 st.markdown("&nbsp;", unsafe_allow_html=True)
 
+# Compute scenario probabilities once, up front, so the Strategic
+# Outlook (rendered first) and the Probability Matrix bars
+# (rendered after) read the same dict.
+adjusted = adjust_probabilities(prices, intel_data, equity_changes)
+
+# ---------- STRATEGIC OUTLOOK (lead scenario narrative) ----------
+# Renders ABOVE the matrix so the v11 narrative for the highest-
+# probability scenario is the first thing the viewer sees in the
+# scenario block.
+st.markdown(
+    '<h3 class="hud-title">◆ Strategic Outlook</h3>',
+    unsafe_allow_html=True,
+)
+st.markdown(render_strategic_outlook(adjusted), unsafe_allow_html=True)
+
+st.markdown("&nbsp;", unsafe_allow_html=True)
+
 # ---------- PROBABILITY MATRIX & THRESHOLDS ----------
 left, right = st.columns([1.2, 1])
 
 with left:
     st.markdown('<h3 class="hud-title">◆ Scenario Probability Matrix</h3>',
                 unsafe_allow_html=True)
-    adjusted = adjust_probabilities(prices, intel_data, equity_changes)
     for label in ["Best Case", "Slow Normalization", "Base Case", "Tail Risk"]:
         render_prob_bar(label, adjusted[label], BASE_PROBS[label])
 
@@ -1845,19 +1866,6 @@ with right:
             f'<span>{eq_status}</span></div>',
             unsafe_allow_html=True,
         )
-
-st.markdown("&nbsp;", unsafe_allow_html=True)
-
-# ---------- STRATEGIC OUTLOOK ----------
-# Dynamic narrative card driven by whichever scenario currently has
-# the highest probability in `adjusted` (computed by adjust_probabilities
-# above inside the `with left:` block — Python `with` does not create
-# a new scope, so `adjusted` is in scope here).
-st.markdown(
-    '<h3 class="hud-title">◆ Strategic Outlook</h3>',
-    unsafe_allow_html=True,
-)
-st.markdown(render_strategic_outlook(adjusted), unsafe_allow_html=True)
 
 st.markdown("&nbsp;", unsafe_allow_html=True)
 
