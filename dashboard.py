@@ -1,3 +1,4 @@
+import html
 import json
 import re
 from datetime import datetime
@@ -10,7 +11,7 @@ st.set_page_config(
     page_title="Global Supply Chain Contagion HUD",
     page_icon="\U0001F6E1",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 CUSTOM_CSS = """
@@ -52,24 +53,77 @@ CUSTOM_CSS = """
         padding: 1rem 1.25rem;
         margin-bottom: 1rem;
     }
-    [data-testid="stMetric"] {
+    /* Unified responsive card grid — used for both Commodity Telemetry
+       and Logistics & Inputs Intel. auto-fit + minmax means cards keep
+       a 240px floor and wrap to a new row on smaller screens instead of
+       squishing. Every card uses the same .intel-card class so heights
+       and widths match exactly across the whole dashboard. */
+    .intel-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+    .intel-card {
         background-color: #111827;
         border: 1px solid #1f2937;
         border-radius: 6px;
         padding: 1rem;
+        font-family: 'Courier New', monospace;
+        min-height: 140px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        box-sizing: border-box;
     }
-    [data-testid="stMetricLabel"] {
+    .intel-card-label {
         color: #9ca3af;
-        font-family: 'Courier New', monospace;
         text-transform: uppercase;
-        letter-spacing: 2px;
-        font-size: 0.75rem;
+        letter-spacing: 1.5px;
+        font-size: 0.7rem;
+        line-height: 1.3;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-bottom: 0.5rem;
     }
-    [data-testid="stMetricValue"] {
+    .intel-card-value {
         color: #e5e7eb;
-        font-family: 'Courier New', monospace;
-        font-size: 1.75rem;
+        font-size: 1.5rem;
+        line-height: 1.2;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-bottom: 0.4rem;
     }
+    .intel-card-unavail {
+        color: #6b7280 !important;
+        font-size: 1rem !important;
+        letter-spacing: 1px;
+    }
+    .intel-card-delta {
+        font-size: 0.78rem;
+        color: #9ca3af;
+        margin-top: auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .intel-card-detail {
+        font-size: 0.75rem;
+        color: #9ca3af;
+        line-height: 1.35;
+        margin-top: auto;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-height: 4.05em;
+    }
+    .delta-bear { color: #f87171; }
+    .delta-bull { color: #4ade80; }
+    .delta-flat { color: #9ca3af; }
     .prob-bar-container {
         background-color: #111827;
         border: 1px solid #1f2937;
@@ -140,38 +194,6 @@ CUSTOM_CSS = """
         border-radius: 2px;
         margin-left: 6px;
         vertical-align: middle;
-    }
-    .status-card {
-        background-color: #111827;
-        border: 1px solid #1f2937;
-        border-radius: 6px;
-        padding: 1rem;
-        font-family: 'Courier New', monospace;
-        height: 100%;
-    }
-    .status-card-label {
-        color: #9ca3af;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-        font-size: 0.75rem;
-        margin-bottom: 0.5rem;
-    }
-    .status-card-value {
-        font-size: 1.5rem;
-        font-weight: bold;
-        letter-spacing: 2px;
-        margin-bottom: 0.4rem;
-    }
-    .status-card-detail {
-        font-size: 0.78rem;
-        color: #9ca3af;
-        line-height: 1.3;
-    }
-    .status-card-unavail {
-        font-size: 1.1rem;
-        color: #6b7280;
-        letter-spacing: 1px;
-        margin-bottom: 0.4rem;
     }
 </style>
 """
@@ -283,12 +305,15 @@ PERPLEXITY_USER_PROMPT = (
 )
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=86400)
 def fetch_price(ticker: str) -> float | None:
     """
     Pull raw close price directly from yfinance. No multipliers, no
     transforms, no synthetic data — whatever Yahoo returns is what
     the dashboard displays.
+
+    Cached for 24h: a public read-only dashboard hits yfinance once per
+    day per ticker; every visitor after the first gets the cached value.
     """
     try:
         data = yf.Ticker(ticker).history(period="2d", interval="1d")
@@ -380,7 +405,7 @@ def _extract_json_object(raw: str) -> dict | None:
     return None
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=86400, show_spinner=False)
 def fetch_perplexity_intel(api_key: str) -> dict:
     result = {
         "data": None,
@@ -822,60 +847,107 @@ def render_prob_bar(label: str, pct: float, base_pct: float):
     )
 
 
-def render_status_card(col, label, value_text, value_color, detail):
-    """Generic qualitative card. value_text=None → DATA UNAVAILABLE."""
-    with col:
-        if value_text is None:
-            st.markdown(
-                f'<div class="status-card">'
-                f'<div class="status-card-label">{label}</div>'
-                f'<div class="status-card-unavail">DATA UNAVAILABLE</div>'
-                f'<div class="status-card-detail">{detail or ""}</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-            return
-        st.markdown(
-            f'<div class="status-card" style="border-color: {value_color};">'
-            f'<div class="status-card-label">{label}</div>'
-            f'<div class="status-card-value" style="color: {value_color};">'
-            f'● {value_text}</div>'
-            f'<div class="status-card-detail">{detail or ""}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
+def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
+                      fmt="{:,.0f}", suffix="", delta_decimals=0):
+    """Numeric card returning a single HTML string for the .intel-grid
+    wrapper. value=None → DATA UNAVAILABLE. Upstream parsing already
+    converts 0 / negatives to None so we never show, alert on, or score
+    a placeholder zero."""
+    label_safe = html.escape(label)
+    if value is None:
+        return (
+            f'<div class="intel-card">'
+            f'<div class="intel-card-label">{label_safe}</div>'
+            f'<div class="intel-card-value intel-card-unavail">'
+            f'DATA UNAVAILABLE</div>'
+            f'<div class="intel-card-delta">&nbsp;</div>'
+            f'</div>'
         )
+    delta = value - baseline
+    delta_fmt = f"{{:+,.{delta_decimals}f}}"
+    delta_part = delta_fmt.format(delta)
+    if baseline:
+        delta_pct = (delta / baseline) * 100
+        delta_str = f"{delta_part}{suffix} ({delta_pct:+.1f}%)"
+    else:
+        delta_str = f"{delta_part}{suffix} (vs 0 baseline)"
+    if delta == 0:
+        delta_class = "delta-flat"
+    elif bearish_on_rise:
+        delta_class = "delta-bear" if delta > 0 else "delta-bull"
+    else:
+        delta_class = "delta-bear" if delta < 0 else "delta-bull"
+    value_display = f"{currency}{fmt.format(value)}{suffix}"
+    return (
+        f'<div class="intel-card">'
+        f'<div class="intel-card-label">{label_safe}</div>'
+        f'<div class="intel-card-value">{html.escape(value_display)}</div>'
+        f'<div class="intel-card-delta {delta_class}">'
+        f'{html.escape(delta_str)}</div>'
+        f'</div>'
+    )
 
 
-# ---------- SIDEBAR: API key & controls ----------
+def card_status_html(label, value_text, value_color, detail):
+    """Qualitative card returning a single HTML string. value_text=None
+    → DATA UNAVAILABLE. The detail string can contain Perplexity-sourced
+    text and is HTML-escaped to defend against payload tampering."""
+    label_safe = html.escape(label)
+    detail_safe = html.escape(detail) if detail else "&nbsp;"
+    if value_text is None:
+        return (
+            f'<div class="intel-card">'
+            f'<div class="intel-card-label">{label_safe}</div>'
+            f'<div class="intel-card-value intel-card-unavail">'
+            f'DATA UNAVAILABLE</div>'
+            f'<div class="intel-card-detail">{detail_safe}</div>'
+            f'</div>'
+        )
+    color = html.escape(value_color or "#9ca3af")
+    return (
+        f'<div class="intel-card" style="border-color: {color};">'
+        f'<div class="intel-card-label">{label_safe}</div>'
+        f'<div class="intel-card-value" style="color: {color};">'
+        f'● {html.escape(value_text)}</div>'
+        f'<div class="intel-card-detail">{detail_safe}</div>'
+        f'</div>'
+    )
+
+
+# ---------- API KEY: load from Streamlit secrets (read-only deploy) ----------
+# The dashboard is public and read-only. The Perplexity key lives in
+# Streamlit secrets (.streamlit/secrets.toml on Cloud / "Secrets" panel
+# on Community Cloud), never in user input.
+try:
+    api_key = st.secrets["PERPLEXITY_API_KEY"]
+except Exception:
+    api_key = None
+
+# ---------- SIDEBAR: read-only feed status ----------
 with st.sidebar:
     st.markdown(
-        '<h3 class="hud-title" style="font-size:0.95rem;">◆ INTEL FEED</h3>',
+        '<h3 class="hud-title" style="font-size:0.95rem;">◆ FEED STATUS</h3>',
         unsafe_allow_html=True,
     )
-    api_key = st.text_input(
-        "Perplexity API Key",
-        type="password",
-        help="Used only in-session to query api.perplexity.ai. Not persisted.",
-        placeholder="pplx-...",
-    )
-
-    refresh_intel = st.button("Refresh Intel", use_container_width=True)
-    if refresh_intel:
-        fetch_perplexity_intel.clear()
-
-    if not api_key:
-        st.warning(
-            "Enter a Perplexity API key to enable non-ticker intelligence "
-            "(Panama, urea, Hormuz, Malacca, helium, PE/PP resins, jet "
-            "fuel, India rice ban). Commodity feed will continue without it.",
-            icon="⚠️",
+    if api_key:
+        st.markdown(
+            '<div style="font-size:0.75rem;color:#9ca3af;'
+            'font-family:Courier New,monospace;line-height:1.6;">'
+            'Mode: <span style="color:#00ffd1;">PUBLIC / READ-ONLY</span><br>'
+            'Intel: <span style="color:#00ffd1;">ARMED</span><br>'
+            'Refresh: <span style="color:#9ca3af;">auto, 24h cache</span><br>'
+            'Sources: yfinance + perplexity sonar-pro'
+            '</div>',
+            unsafe_allow_html=True,
         )
-
-    st.markdown(
-        '<div style="font-size:0.7rem;color:#6b7280;margin-top:1rem;">'
-        "Intel cache: 15 min. Click Refresh Intel to force a new query.</div>",
-        unsafe_allow_html=True,
-    )
+    else:
+        st.error(
+            "PERPLEXITY_API_KEY is missing from Streamlit secrets. "
+            "Add it to .streamlit/secrets.toml (or the Streamlit Cloud "
+            "Secrets panel) to enable the logistics & inputs intel feed. "
+            "The commodity ticker feed will continue without it.",
+            icon="🔐",
+        )
 
 
 # ---------- MAIN HEADER ----------
@@ -903,33 +975,30 @@ with st.spinner("Pulling live commodity feed..."):
 st.markdown('<h3 class="hud-title">◆ Commodity Telemetry</h3>',
             unsafe_allow_html=True)
 
-c1, c2, c3, c4 = st.columns(4)
-
-
-def metric_panel(col, label, price, baseline_value, currency, bearish_on_rise,
-                 fmt="{:,.2f}"):
-    with col:
-        if price is None:
-            st.metric(label, "—", "feed offline")
-            return
-        delta = price - baseline_value
-        delta_pct = (delta / baseline_value) * 100 if baseline_value else 0.0
-        delta_str = f"{delta:+,.2f} ({delta_pct:+.1f}%)"
-        color = "inverse" if bearish_on_rise else "normal"
-        st.metric(
-            label=label,
-            value=f"{currency}{fmt.format(price)}",
-            delta=delta_str,
-            delta_color=color,
-        )
-
-
-metric_panel(c1, "BRENT CRUDE  (BZ=F)", prices["Brent"], BASELINE["Brent"], "$", True)
-metric_panel(c2, "TTF GAS  (TTF=F)", prices["TTF"], BASELINE["TTF"], "€", True)
-# Gold/Silver: raw yfinance Close, no multipliers, baseline kept at the
-# pre-crisis $2,300 / $28 reference levels for delta math.
-metric_panel(c3, "GOLD  (GC=F)", prices["Gold"], BASELINE["Gold"], "$", False)
-metric_panel(c4, "SILVER  (SI=F)", prices["Silver"], BASELINE["Silver"], "$", False)
+commodity_cards = [
+    card_numeric_html(
+        "BRENT CRUDE  (BZ=F)", prices["Brent"], BASELINE["Brent"],
+        "$", True, fmt="{:,.2f}", delta_decimals=2,
+    ),
+    card_numeric_html(
+        "TTF GAS  (TTF=F)", prices["TTF"], BASELINE["TTF"],
+        "€", True, fmt="{:,.2f}", delta_decimals=2,
+    ),
+    # Gold/Silver: raw yfinance Close, no multipliers, baseline kept at the
+    # pre-crisis $2,300 / $28 reference levels for delta math.
+    card_numeric_html(
+        "GOLD  (GC=F)", prices["Gold"], BASELINE["Gold"],
+        "$", False, fmt="{:,.2f}", delta_decimals=2,
+    ),
+    card_numeric_html(
+        "SILVER  (SI=F)", prices["Silver"], BASELINE["Silver"],
+        "$", False, fmt="{:,.2f}", delta_decimals=2,
+    ),
+]
+st.markdown(
+    '<div class="intel-grid">' + "".join(commodity_cards) + '</div>',
+    unsafe_allow_html=True,
+)
 
 st.markdown("&nbsp;", unsafe_allow_html=True)
 
@@ -954,117 +1023,89 @@ else:
     intel_meta["error"] = "Perplexity intel paused — no API key."
 
 
-def intel_panel(col, label, value, baseline_value, currency, bearish_on_rise,
-                fmt="{:,.0f}", suffix="", delta_decimals=0):
-    """Numeric intel card. value=None → 'DATA UNAVAILABLE'.
-    Upstream parsing already converts 0 / negatives to None so we never
-    show, alert on, or score a placeholder zero."""
-    with col:
-        if value is None:
-            st.metric(label, "DATA UNAVAILABLE")
-            return
-        delta = value - baseline_value
-        delta_fmt = f"{{:+,.{delta_decimals}f}}"
-        delta_part = delta_fmt.format(delta)
-        if baseline_value:
-            delta_pct = (delta / baseline_value) * 100
-            delta_str = f"{delta_part}{suffix} ({delta_pct:+.1f}%)"
-        else:
-            delta_str = f"{delta_part}{suffix} (vs 0 baseline)"
-        color = "inverse" if bearish_on_rise else "normal"
-        st.metric(
-            label=label,
-            value=f"{currency}{fmt.format(value)}{suffix}",
-            delta=delta_str,
-            delta_color=color,
-        )
+# All eight intel cards share the same .intel-card class and live in
+# one auto-fit grid. Order: chokepoints & primary inputs first, then
+# strategic blind-spot inputs. Order on screen depends on viewport
+# width (auto-fit wraps cleanly to the next row).
+intel_cards = []
 
-
-# Row 1 — chokepoints & primary inputs
-i1, i2, i3, i4 = st.columns(4)
-intel_panel(
-    i1, "PANAMA NEOPANAMAX  (slot $)",
+intel_cards.append(card_numeric_html(
+    "PANAMA NEOPANAMAX  (slot $)",
     intel_data.get("panama_canal_neopanamax_price"),
     INTEL_BASELINE["panama_canal_neopanamax_price"],
     "$", True, fmt="{:,.0f}",
-)
-intel_panel(
-    i2, "UREA SPOT  ($/ton)",
+))
+intel_cards.append(card_numeric_html(
+    "UREA SPOT  ($/ton)",
     intel_data.get("urea_spot_price_ton"),
     INTEL_BASELINE["urea_spot_price_ton"],
     "$", True, fmt="{:,.0f}",
-)
-# Hormuz: lower transit count is the bearish event, so delta_color stays
-# "normal" (a negative delta will display in red automatically).
-intel_panel(
-    i3, "HORMUZ TRANSITS  (ships/day)",
+))
+# Hormuz: lower transit count is the bearish event, so bearish_on_rise=False.
+intel_cards.append(card_numeric_html(
+    "HORMUZ TRANSITS  (ships/day)",
     intel_data.get("hormuz_daily_transit_count"),
     INTEL_BASELINE["hormuz_daily_transit_count"],
     "", False, fmt="{:.0f}",
-)
+))
 
 malacca_sev = intel_data.get("malacca_severity")
 malacca_status = intel_data.get("malacca_status")
 if malacca_sev is None and malacca_status is None:
-    render_status_card(i4, "MALACCA STATUS", None, None,
-                       "Perplexity returned no usable status for this strait.")
+    intel_cards.append(card_status_html(
+        "MALACCA STATUS", None, None,
+        "Perplexity returned no usable status for this strait.",
+    ))
 else:
     sev = malacca_sev or "nominal"
-    render_status_card(
-        i4,
+    intel_cards.append(card_status_html(
         "MALACCA STATUS",
         sev.upper(),
         SEVERITY_COLORS.get(sev, "#9ca3af"),
         malacca_status or "(no status text returned)",
-    )
+    ))
 
-# Row 2 — strategic blind-spot inputs
-j1, j2, j3, j4 = st.columns(4)
-intel_panel(
-    j1, "HELIUM SPOT  ($/Mcf)",
+intel_cards.append(card_numeric_html(
+    "HELIUM SPOT  ($/Mcf)",
     intel_data.get("helium_spot_price_mcf"),
     INTEL_BASELINE["helium_spot_price_mcf"],
     "$", True, fmt="{:,.0f}",
-)
-intel_panel(
-    j2, "PE/PP RESIN SPIKE  (Asia)",
+))
+intel_cards.append(card_numeric_html(
+    "PE/PP RESIN SPIKE  (Asia)",
     intel_data.get("asian_pe_pp_resin_spike"),
     INTEL_BASELINE["asian_pe_pp_resin_spike"],
     "", True, fmt="{:.1f}", suffix="%", delta_decimals=1,
-)
-intel_panel(
-    j3, "JET FUEL  ($/ton)",
+))
+intel_cards.append(card_numeric_html(
+    "JET FUEL  ($/ton)",
     intel_data.get("jet_fuel_price_ton"),
     INTEL_BASELINE["jet_fuel_price_ton"],
     "$", True, fmt="{:,.0f}",
-)
+))
 
 rice_ban = intel_data.get("india_rice_ban_status")
 if rice_ban == "ACTIVE":
-    render_status_card(
-        j4,
-        "INDIA RICE EXPORT BAN",
-        "ACTIVE",
-        "#dc2626",
-        "Indian government export ban currently in force on at least one "
-        "rice category. Sovereign food-policy shock active.",
-    )
+    intel_cards.append(card_status_html(
+        "INDIA RICE EXPORT BAN", "ACTIVE", "#dc2626",
+        "Indian government export ban currently in force on at least "
+        "one rice category. Sovereign food-policy shock active.",
+    ))
 elif rice_ban == "INACTIVE":
-    render_status_card(
-        j4,
-        "INDIA RICE EXPORT BAN",
-        "INACTIVE",
-        "#10b981",
+    intel_cards.append(card_status_html(
+        "INDIA RICE EXPORT BAN", "INACTIVE", "#10b981",
         "No active Indian rice export ban currently in force.",
-    )
+    ))
 else:
-    render_status_card(
-        j4,
-        "INDIA RICE EXPORT BAN",
-        None,
-        None,
+    intel_cards.append(card_status_html(
+        "INDIA RICE EXPORT BAN", None, None,
         "Perplexity did not return a usable ACTIVE/INACTIVE flag.",
-    )
+    ))
+
+st.markdown(
+    '<div class="intel-grid">' + "".join(intel_cards) + '</div>',
+    unsafe_allow_html=True,
+)
 
 if intel_meta["error"]:
     st.markdown(
