@@ -1,32 +1,3 @@
-Got it — heads down on the edits.
-
-Add helium helpers next to `equity_severity`.
-
-Update `adjust_probabilities` with the three new physical gates.
-
-Add the three corresponding `[CRITICAL]` playbook actions at the top of `evaluate_playbook` (so they appear above other alerts).
-
-Now the big restructure. Hoist all data fetching to immediately after the header, render Strategic Outlook first, then keep the rest of the sections rendering-only.
-
-Now layer the OECD breach onto the Brent card.
-
-Now strip the duplicate fetch from the Equity Proxy Radar block (data is already loaded above).
-
-Now strip the duplicate fetch from the Logistics & Inputs Intel block.
-
-Now override the Helium card with the EXHAUSTED status when the boil-off threshold is crossed.
-
-Add the new physical-gate rows to the Threshold Monitor.
-
-Now remove the original Strategic Outlook block (now duplicated since we hoisted it to the top).
-
-Final verification — parse, walk the major wirings.
-
-Parses clean. Reading the final file to deliver as a single code block.
-
-Here is the complete updated `dashboard.py`:
-
-```python
 import html
 import json
 import re
@@ -82,6 +53,11 @@ CUSTOM_CSS = """
         padding: 1rem 1.25rem;
         margin-bottom: 1rem;
     }
+    /* Unified responsive card grid — used for both Commodity Telemetry
+       and Logistics & Inputs Intel. auto-fit + minmax means cards keep
+       a 240px floor and wrap to a new row on smaller screens instead of
+       squishing. Every card uses the same .intel-card class so heights
+       and widths match exactly across the whole dashboard. */
     .intel-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -94,6 +70,9 @@ CUSTOM_CSS = """
         border-radius: 6px;
         padding: 1rem;
         font-family: 'Courier New', monospace;
+        /* Bumped from 140 to 160 so equity cards comfortably fit the
+           new "why it matters" context footer without other sections
+           visually disagreeing on row height. */
         min-height: 160px;
         display: flex;
         flex-direction: column;
@@ -107,6 +86,9 @@ CUSTOM_CSS = """
         font-size: 0.7rem;
         line-height: 1.3;
         overflow: hidden;
+        /* Allow up to 2 lines so longer descriptive labels like
+           "FERTILIZER & FOOD SECURITY (CF)" don't get clipped at
+           240px column width. */
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
@@ -136,6 +118,8 @@ CUSTOM_CSS = """
         white-space: nowrap;
         line-height: 1.4;
     }
+    /* Pill treatment kicks in only when a directional class is present.
+       Bare .intel-card-delta (e.g., empty/baseline rows) stays plain. */
     .intel-card-delta.delta-bear,
     .intel-card-delta.delta-bull {
         align-self: flex-start;
@@ -169,11 +153,16 @@ CUSTOM_CSS = """
         color: #22c55e;
     }
     .delta-flat { color: #9ca3af; }
+    /* High-Alert: any card whose underlying metric is currently in a
+       BREACHED / WARNING / CRITICAL state in the Threshold Monitor.
+       Red border + soft red glow makes it impossible to miss. */
     .intel-card-breached {
         border-color: rgba(255, 50, 50, 0.80) !important;
         box-shadow: 0 0 12px rgba(255, 50, 50, 0.25),
                     inset 0 0 1px rgba(255, 50, 50, 0.40);
     }
+    /* Equity Proxy Radar: small explainer paragraph rendered between
+       the section header and the card grid. Flat block, low-key. */
     .radar-explainer {
         background-color: #0d1218;
         border-left: 2px solid #1f2937;
@@ -185,6 +174,9 @@ CUSTOM_CSS = """
         margin-bottom: 1rem;
         letter-spacing: 0.3px;
     }
+    /* "Why it matters" footer line on each equity card. Shows below
+       the delta pill, separated by a faint divider. Stays small and
+       subtle so it doesn't compete with price + tier readout. */
     .intel-card-context {
         font-size: 0.7rem;
         color: #6b7280;
@@ -200,6 +192,9 @@ CUSTOM_CSS = """
         -webkit-box-orient: vertical;
         text-overflow: ellipsis;
     }
+    /* Strategic Outlook narrative card. The accent color is injected
+       per-render via inline styles on border-left, title, prob badge,
+       bullet markers, and a soft diagonal background wash. */
     .scenario-narrative {
         border: 1px solid #1f2937;
         border-left-width: 4px;
@@ -263,6 +258,10 @@ CUSTOM_CSS = """
         font-size: 1rem;
         color: var(--accent, #9ca3af);
     }
+    /* Subtle indicator shown when a card or threshold row is sitting on
+       the hardcoded peace-time baseline because Perplexity returned
+       0/null/missing. The number renders normally; the tag tells the
+       user they are looking at the baseline, not a live read. */
     .baseline-tag {
         font-size: 0.65rem;
         color: #6b7280;
@@ -371,13 +370,17 @@ TICKERS = {
     "Silver": "SI=F",
 }
 
+# Equity Proxy Radar — equities whose daily move serves as a real-time
+# proxy for the corresponding intel input. A large absolute spike on
+# any of these is taken as an early-warning signal even if the
+# underlying physical-market data has not been updated yet.
 EQUITY_TICKERS = {
-    "CF":   "CF",
-    "DOW":  "DOW",
-    "APD":  "APD",
-    "JETS": "JETS",
-    "WDC":  "WDC",
-    "STX":  "STX",
+    "CF":   "CF",     # CF Industries Holdings (fertilizer / ammonia)
+    "DOW":  "DOW",    # Dow Inc. (commodity petrochemicals / PE-PP)
+    "APD":  "APD",    # Air Products & Chemicals (industrial gases)
+    "JETS": "JETS",   # U.S. Global Jets ETF (airlines / jet fuel)
+    "WDC":  "WDC",    # Western Digital (AI storage / HDD bottleneck)
+    "STX":  "STX",    # Seagate Technology (AI storage / HDD bottleneck)
 }
 
 EQUITY_PROXY_META = {
@@ -426,17 +429,27 @@ EQUITY_PROXY_META = {
                  "shortages."},
 }
 
+# v11 Intelligence Brief — physical-logic gates layered on top of the
+# Perplexity / yfinance feeds.
 QATAR_HELIUM_FORCE_MAJEURE_DATE = date(2026, 3, 2)
-HELIUM_BOIL_OFF_DAYS = 48
+HELIUM_BOIL_OFF_DAYS = 48              # liquid helium boil-off threshold
 OECD_INVENTORY_OPERATIONAL_MIN_MB = 842
-OECD_INVENTORY_BREACH = True
-JET_FUEL_SPIKE_THRESHOLD_PCT = 55
+OECD_INVENTORY_BREACH = True           # v11 confirmed below operational minimum
+JET_FUEL_SPIKE_THRESHOLD_PCT = 55      # "Payload Displacement Warning" gate
 
+# Severity tiers for absolute daily % move on the proxy. Symmetric so
+# a large drop (e.g., JETS down 14%) flags the same way as a large
+# rise on a fertilizer name (e.g., CF up 14%).
 EQUITY_THRESHOLDS = {
     "warning":  5.0,
     "critical": 12.0,
 }
 
+# Pre-crisis "peace-time" baselines. These are used for two things:
+# (1) delta math when live data is present, and (2) display fallback when
+# Perplexity returns 0/null/missing. A fallback NEVER feeds the
+# probability engine — adjust_probabilities() / evaluate_playbook()
+# continue to receive None upstream so the math is unchanged.
 INTEL_BASELINE = {
     "panama_canal_neopanamax_price": 1_500_000.0,
     "urea_spot_price_ton": 320.0,
@@ -446,12 +459,18 @@ INTEL_BASELINE = {
     "jet_fuel_price_ton": 850.0,
 }
 
+# Qualitative peace-time defaults (no numeric baseline applies).
 MALACCA_BASELINE_SEVERITY = "nominal"
 MALACCA_BASELINE_STATUS = (
     "Peace-time baseline — no active maritime disruption flagged."
 )
 RICE_BAN_BASELINE = "INACTIVE"
 
+# BASE_PROBS reset for the post-April-29 extended-blockade scenario.
+# US rejected the April 27th Iranian offer in favor of an extended
+# Hormuz blockade — Best Case is no longer viable, weight collapses
+# into Base Case + Tail Risk. Engine adjustments (equity tiers,
+# Malacca override, helium exhaustion, etc.) still apply on top.
 BASE_PROBS = {
     "Best Case": 0.0,
     "Slow Normalization": 0.0,
@@ -466,6 +485,15 @@ PROB_COLORS = {
     "Tail Risk": "#dc2626",
 }
 
+# Strategic Outlook bullets for each scenario. The card under the
+# Probability Matrix renders the narrative for whichever scenario
+# currently has the highest probability. Color theming is reused from
+# PROB_COLORS so the outlook card matches its bar in the matrix.
+# Narrative content sourced from the v11 Intelligence Brief (Slide 36).
+# Dict keys must stay as the existing scenario IDs ("Slow Normalization"
+# in American spelling) because they're shared with BASE_PROBS,
+# PROB_COLORS, and the adjust_probabilities engine; the bullets
+# themselves are reproduced verbatim from the v11 brief.
 SCENARIO_NARRATIVES = {
     "Best Case": [
         "Hormuz reopens by Q3 2026; Phased ceasefire.",
@@ -566,6 +594,15 @@ PERPLEXITY_USER_PROMPT = (
 
 @st.cache_data(ttl=14400)
 def fetch_price(ticker: str) -> float | None:
+    """
+    Pull raw close price directly from yfinance. No multipliers, no
+    transforms, no synthetic data — whatever Yahoo returns is what
+    the dashboard displays.
+
+    Cached for 4h (14400s) so the dashboard refreshes in step with
+    major market sessions (Asia → Europe → US) instead of locking
+    everyone to a single daily snapshot.
+    """
     try:
         data = yf.Ticker(ticker).history(period="2d", interval="1d")
         if data.empty:
@@ -577,6 +614,11 @@ def fetch_price(ticker: str) -> float | None:
 
 @st.cache_data(ttl=14400)
 def fetch_equity_snapshot(ticker: str) -> dict:
+    """Return {"price": last close, "pct_change": daily % vs prior close}.
+    Either field can be None if the data is unavailable. period=5d
+    guarantees we get at least two trading-day closes even after a
+    long weekend or holiday. Cached 4h alongside fetch_price so the
+    Equity Proxy Radar refreshes with each major market session."""
     out = {"price": None, "pct_change": None}
     try:
         data = yf.Ticker(ticker).history(period="5d", interval="1d")
@@ -595,6 +637,11 @@ def fetch_equity_snapshot(ticker: str) -> dict:
 
 
 def equity_severity(pct_change):
+    """Tier on absolute daily move:
+        |chg| >= 12% → 'critical'
+        |chg| >=  5% → 'warning'
+        otherwise    → 'nominal'
+    Returns None if pct_change is None."""
     if pct_change is None:
         return None
     abs_change = abs(pct_change)
@@ -606,14 +653,19 @@ def equity_severity(pct_change):
 
 
 def helium_days_elapsed():
+    """Calendar days since the March 2, 2026 Qatar helium force majeure."""
     return (date.today() - QATAR_HELIUM_FORCE_MAJEURE_DATE).days
 
 
 def helium_exhausted():
+    """True once elapsed days meet/exceed the 48-day liquid-helium
+    boil-off threshold. v11 brief: at >= 48 days, fab and MRI
+    stockpiles drained — semiconductor yield collapse is imminent."""
     return helium_days_elapsed() >= HELIUM_BOIL_OFF_DAYS
 
 
 def jet_spike_pct(jet_value):
+    """Jet fuel price as % above the peace-time baseline. None-safe."""
     if jet_value is None:
         return None
     base = INTEL_BASELINE["jet_fuel_price_ton"]
@@ -639,6 +691,9 @@ def _coerce_number(value):
 
 
 def _positive_or_none(value):
+    """Treat 0 and negatives as 'data unavailable' — Perplexity sometimes
+    returns 0 as a placeholder when it can't source a real number.
+    Applied uniformly to every numeric intel field."""
     if value is None:
         return None
     try:
@@ -671,6 +726,8 @@ def _normalize_status(value):
 
 
 def _normalize_ban_status(value):
+    """Rice ban must be exactly 'ACTIVE' or 'INACTIVE'. Anything else
+    (None, empty, 'unknown', misspellings, prose) → None → DATA UNAVAILABLE."""
     if not isinstance(value, str):
         return None
     cleaned = value.strip().upper()
@@ -700,7 +757,12 @@ def _extract_json_object(raw: str) -> dict | None:
 
 @st.cache_data(ttl=14400, show_spinner=False)
 def fetch_perplexity_intel(api_key: str) -> dict:
-    result = {"data": None, "raw": None, "error": None, "fetched_at": None}
+    result = {
+        "data": None,
+        "raw": None,
+        "error": None,
+        "fetched_at": None,
+    }
     if not api_key:
         result["error"] = "No API key provided."
         return result
@@ -720,7 +782,10 @@ def fetch_perplexity_intel(api_key: str) -> dict:
 
     try:
         response = requests.post(
-            PERPLEXITY_ENDPOINT, headers=headers, json=payload, timeout=60,
+            PERPLEXITY_ENDPOINT,
+            headers=headers,
+            json=payload,
+            timeout=60,
         )
     except requests.RequestException as e:
         result["error"] = f"Network error: {e}"
@@ -776,6 +841,8 @@ def adjust_probabilities(prices: dict, intel: dict | None = None,
     intel = intel or {}
     equity_changes = equity_changes or {}
 
+    # Hard override: a critical Malacca event collapses the matrix to
+    # max Tail Risk. Skip every other adjustment.
     if intel.get("malacca_severity") == "critical":
         return {
             "Best Case": 0.0,
@@ -841,6 +908,7 @@ def adjust_probabilities(prices: dict, intel: dict | None = None,
         probs["Base Case"] -= 4
         probs["Slow Normalization"] -= 4
 
+    # New tripwires (helium, resins, jet fuel, india rice ban).
     helium = intel.get("helium_spot_price_mcf")
     if helium is not None and helium > 2000:
         probs["Tail Risk"] += 4
@@ -866,6 +934,8 @@ def adjust_probabilities(prices: dict, intel: dict | None = None,
         probs["Best Case"] -= 5
         probs["Slow Normalization"] -= 5
 
+    # v11 physical-logic gates — fire regardless of Perplexity intel
+    # because the underlying conditions are confirmed by the brief.
     if helium_exhausted():
         probs["Tail Risk"] += 8
         probs["Base Case"] -= 4
@@ -882,6 +952,11 @@ def adjust_probabilities(prices: dict, intel: dict | None = None,
         probs["Best Case"] -= 2
         probs["Slow Normalization"] -= 2
 
+    # Equity Proxy Radar: every WARNING tier nudges Base Case up
+    # slightly (uncertainty rising); every CRITICAL tier pushes Tail
+    # Risk meaningfully. Effects accumulate across the four proxies so
+    # broad-based equity stress is scored more aggressively than a
+    # single isolated mover.
     warning_count = 0
     critical_count = 0
     for ticker_key in EQUITY_TICKERS:
@@ -930,6 +1005,7 @@ def evaluate_playbook(prices: dict, intel: dict | None = None,
     malacca_status = intel.get("malacca_status") or "no detail returned"
     rice_ban = intel.get("india_rice_ban_status")
 
+    # ----- v11 Intelligence Brief — physical-logic gates -----
     if helium_exhausted():
         days = helium_days_elapsed()
         actions.append({
@@ -1103,6 +1179,8 @@ def evaluate_playbook(prices: dict, intel: dict | None = None,
                          "any silver-linked holdings for rebalancing.",
         })
 
+    # Numeric intel: only fire if value is real (None means data
+    # unavailable or 0/negative placeholder filtered out upstream).
     if urea is not None and urea > 800:
         actions.append({
             "level": "critical",
@@ -1206,6 +1284,9 @@ def evaluate_playbook(prices: dict, intel: dict | None = None,
                          "Lock summer/holiday travel now if possible.",
         })
 
+    # Equity Proxy Radar: a CRITICAL tier (|daily move| >= 12%) on any
+    # proxy fires its own [CRITICAL] action with explicit advice to
+    # audit the corresponding supply chain.
     for ticker_key in EQUITY_TICKERS:
         change = equity_changes.get(ticker_key)
         if equity_severity(change) != "critical":
@@ -1235,6 +1316,13 @@ def evaluate_playbook(prices: dict, intel: dict | None = None,
 
 
 def render_strategic_outlook(adjusted: dict) -> str:
+    """Pick the highest-probability scenario from `adjusted` and return
+    a single self-contained HTML card with its narrative bullets.
+
+    Color theming is sourced from PROB_COLORS so the outlook always
+    matches the matrix bar above. The accent color is injected via the
+    --accent CSS variable so bullet glyphs pick it up without each
+    <li> needing its own inline style."""
     if not adjusted:
         return ""
     lead = max(adjusted, key=adjusted.get)
@@ -1245,6 +1333,7 @@ def render_strategic_outlook(adjusted: dict) -> str:
     bullets_html = "".join(
         f"<li>{html.escape(b)}</li>" for b in bullets
     )
+    # Soft diagonal wash of the accent color for a "lit-up" feel.
     bg = (
         f"linear-gradient(135deg, {color}1F 0%, "
         f"rgba(17,24,39,0.0) 70%), #111827"
@@ -1290,6 +1379,27 @@ def render_prob_bar(label: str, pct: float, base_pct: float):
 def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
                       fmt="{:,.0f}", suffix="", delta_decimals=0,
                       use_baseline_fallback=True, breach=False):
+    """Numeric card returning a single HTML string for the .intel-grid
+    wrapper.
+
+    Display rules:
+      - If `value` is a real number, show it with the live delta vs
+        baseline.
+      - If `value` is None (Perplexity returned 0/null/missing) and
+        `use_baseline_fallback` is True (default for intel cards), show
+        the hardcoded peace-time baseline value with a subtle
+        "(baseline)" tag in place of the delta.
+      - If `value` is None and fallback is disabled (e.g., yfinance
+        ticker fetch failure), fall through to DATA UNAVAILABLE.
+
+    The probability engine never sees the baseline — it operates on the
+    raw `intel_data` dict where missing values are still None. Fallback
+    is presentation-only.
+
+    `breach=True` adds the .intel-card-breached class for the High-Alert
+    border + glow. Baseline-fallback and DATA UNAVAILABLE never show as
+    breached because we cannot honestly assert a breach without live
+    data."""
     label_safe = html.escape(label)
     card_class = (
         "intel-card intel-card-breached" if breach else "intel-card"
@@ -1325,6 +1435,16 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
         delta_str = f"{delta_part}{suffix} ({delta_pct:+.1f}%)"
     else:
         delta_str = f"{delta_part}{suffix} (vs 0 baseline)"
+    # Pill color follows the Threshold Monitor verdict, NOT the daily
+    # delta direction. This kills the "false green" bug: e.g., Gold has
+    # bearish_on_rise=False (haven-flow framing) but its threshold is
+    # `> $4600`, so a $5000 reading USED to render a green pill (delta
+    # vs baseline is positive in the "good" direction) while the card
+    # border was red (breached). With this rule:
+    #   breach=True  → red pill, regardless of which way the day moved
+    #   breach=False → green pill (only NOMINAL gets green)
+    # `bearish_on_rise` is now informational only — kept on the
+    # signature for compatibility but no longer drives pill color.
     delta_class = "delta-bear" if breach else "delta-bull"
     value_display = f"{currency}{fmt.format(value)}{suffix}"
     return (
@@ -1339,6 +1459,18 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
 
 def card_status_html(label, value_text, value_color, detail,
                      is_baseline=False, breach=False):
+    """Qualitative card returning a single HTML string. value_text=None
+    → DATA UNAVAILABLE (used only when no peace-time baseline applies).
+
+    When `is_baseline` is True, a small italic "(baseline)" tag is
+    appended to the value and the detail line is rendered in muted
+    grey. The card otherwise looks like a live nominal reading. The
+    detail string can contain Perplexity-sourced text and is
+    HTML-escaped to defend against payload tampering.
+
+    `breach=True` adds the .intel-card-breached High-Alert class on top
+    of the existing severity-colored border (e.g., Malacca elevated /
+    critical, India rice ban ACTIVE)."""
     label_safe = html.escape(label)
     detail_safe = html.escape(detail) if detail else "&nbsp;"
     base_class = (
@@ -1370,13 +1502,16 @@ def card_status_html(label, value_text, value_color, detail,
     )
 
 
-# ---------- API KEY ----------
+# ---------- API KEY: load from Streamlit secrets (read-only deploy) ----------
+# The dashboard is public and read-only. The Perplexity key lives in
+# Streamlit secrets (.streamlit/secrets.toml on Cloud / "Secrets" panel
+# on Community Cloud), never in user input.
 try:
     api_key = st.secrets["PERPLEXITY_API_KEY"]
 except Exception:
     api_key = None
 
-# ---------- SIDEBAR ----------
+# ---------- SIDEBAR: read-only feed status ----------
 with st.sidebar:
     st.markdown(
         '<h3 class="hud-title" style="font-size:0.95rem;">◆ FEED STATUS</h3>',
@@ -1421,6 +1556,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# v11 blockade banner — reflects the April 27 Iranian-offer rejection
+# and the resulting extended Hormuz blockade.
 st.markdown(
     '<div class="status-strip" '
     'style="border-left-color:#dc2626;color:#fca5a5;'
@@ -1432,7 +1569,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ---------- DATA FETCH ----------
+# ---------- DATA FETCH (consolidated; runs before any rendering) ----------
+# All upstream data is fetched once here so the Strategic Outlook,
+# Commodity Telemetry, Equity Proxy Radar, Logistics & Inputs Intel,
+# Probability Matrix, and Threshold Monitor all read from the same
+# 4-hour-cached snapshot. Caching is on each individual fetch
+# function (@st.cache_data ttl=14400), so subsequent reruns are free.
 with st.spinner("Pulling live commodity feed..."):
     prices = {name: fetch_price(tk) for name, tk in TICKERS.items()}
 
@@ -1456,9 +1598,10 @@ if api_key:
 else:
     intel_meta["error"] = "Perplexity intel paused — no API key."
 
+# Compute scenario probabilities from the consolidated snapshot.
 adjusted = adjust_probabilities(prices, intel_data, equity_changes)
 
-# ---------- STRATEGIC OUTLOOK ----------
+# ---------- STRATEGIC OUTLOOK (lead scenario, top of page) ----------
 st.markdown(
     '<h3 class="hud-title">◆ Strategic Outlook</h3>',
     unsafe_allow_html=True,
@@ -1466,14 +1609,22 @@ st.markdown(
 st.markdown(render_strategic_outlook(adjusted), unsafe_allow_html=True)
 st.markdown("&nbsp;", unsafe_allow_html=True)
 
-# ---------- COMMODITY TELEMETRY ----------
+# ---------- COMMODITY TELEMETRY (render only — data already fetched) ----------
 st.markdown('<h3 class="hud-title">◆ Commodity Telemetry</h3>',
             unsafe_allow_html=True)
 
+# Commodity tickers do NOT use baseline fallback — yfinance failures are
+# rare and the pre-crisis $100 Brent / $2,300 Gold reference numbers
+# would mislead viewers if shown as a stand-in. Keep DATA UNAVAILABLE
+# behavior here. Baseline-fallback is reserved for Perplexity intel.
+# Breach flag mirrors the lowest tripwire in the Threshold Monitor.
 brent_v = prices["Brent"]
 ttf_v = prices["TTF"]
 gold_v = prices["Gold"]
 silver_v = prices["Silver"]
+# OECD commercial inventories below the 842 MB operational minimum
+# force Brent to CRITICAL regardless of live spot — price is no longer
+# the primary signal, it's just the rationing mechanism.
 brent_breach = (brent_v is not None and brent_v > 115) or OECD_INVENTORY_BREACH
 commodity_cards = [
     card_numeric_html(
@@ -1488,6 +1639,8 @@ commodity_cards = [
         use_baseline_fallback=False,
         breach=ttf_v is not None and ttf_v > 65,
     ),
+    # Gold/Silver: raw yfinance Close, no multipliers, baseline kept at the
+    # pre-crisis $2,300 / $28 reference levels for delta math.
     card_numeric_html(
         "GOLD  (GC=F)", gold_v, BASELINE["Gold"],
         "$", False, fmt="{:,.2f}", delta_decimals=2,
@@ -1509,6 +1662,10 @@ st.markdown(
 st.markdown("&nbsp;", unsafe_allow_html=True)
 
 # ---------- EQUITY PROXY RADAR ----------
+# Daily % change on these four equities serves as a real-time proxy
+# for the corresponding intel inputs. A WARNING tier (|chg| >= 5%) or
+# CRITICAL tier (|chg| >= 12%) on any of them feeds the probability
+# engine and the Threshold Monitor below.
 st.markdown(
     '<h3 class="hud-title">◆ Equity Proxy Radar</h3>',
     unsafe_allow_html=True,
@@ -1523,6 +1680,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# equity_snapshots / equity_changes already fetched in the consolidated
+# DATA FETCH block above — render only.
+
 EQUITY_TIER_COLORS = {
     "nominal": "#10b981",
     "warning": "#eab308",
@@ -1536,7 +1696,16 @@ EQUITY_TIER_GLYPH = {
 
 
 def card_equity_html(ticker_key, snapshot):
+    """Equity proxy card. WARNING and CRITICAL tiers (|daily move| >= 5%
+    and >= 12%) both raise the High-Alert breach state — red border,
+    soft red glow, red delta pill. NOMINAL stays plain.
+
+    Each card carries a small italic 'why it matters' footer sourced
+    from EQUITY_PROXY_META, explaining the strategic linkage between
+    the equity move and the underlying physical-commodity risk."""
     meta = EQUITY_PROXY_META[ticker_key]
+    # meta['name'] already embeds the ticker in parens, so don't
+    # append it again — that would render "(CF)  (CF)".
     label_safe = html.escape(meta["name"])
     proxy_safe = html.escape(meta["proxy_for"])
     context_safe = html.escape(meta.get("why_it_matters", ""))
@@ -1575,6 +1744,8 @@ def card_equity_html(ticker_key, snapshot):
         )
     else:
         change_str = f"{'+' if change >= 0 else ''}{change:.2f}%"
+        # Pill: red for any tier that flags as a breach (warning or
+        # critical), plain grey-flat for nominal.
         delta_class = "delta-bear" if is_breach else "delta-flat"
         delta_html = (
             f'<div class="intel-card-delta {delta_class}">'
@@ -1601,15 +1772,24 @@ st.markdown(
 
 st.markdown("&nbsp;", unsafe_allow_html=True)
 
-# ---------- PERPLEXITY INTEL ----------
+# ---------- PERPLEXITY INTEL (render only — data already fetched) ----------
 st.markdown(
     '<h3 class="hud-title">◆ Logistics & Inputs Intel '
     '<span class="intel-tag">PERPLEXITY</span></h3>',
     unsafe_allow_html=True,
 )
+# intel_data / intel_meta already populated in the consolidated
+# DATA FETCH block above.
 
+
+# All eight intel cards share the same .intel-card class and live in
+# one auto-fit grid. Order: chokepoints & primary inputs first, then
+# strategic blind-spot inputs. Order on screen depends on viewport
+# width (auto-fit wraps cleanly to the next row).
 intel_cards = []
 
+# Per-metric breach flags mirror the lowest tripwire in the Threshold
+# Monitor: a single breach lights the High-Alert border + glow.
 panama_v = intel_data.get("panama_canal_neopanamax_price")
 urea_v = intel_data.get("urea_spot_price_ton")
 hormuz_v = intel_data.get("hormuz_daily_transit_count")
@@ -1631,6 +1811,7 @@ intel_cards.append(card_numeric_html(
     "$", True, fmt="{:,.0f}",
     breach=urea_v is not None and urea_v > 600,
 ))
+# Hormuz: lower transit count is the bearish event, so bearish_on_rise=False.
 intel_cards.append(card_numeric_html(
     "HORMUZ TRANSITS  (ships/day)",
     hormuz_v,
@@ -1642,6 +1823,9 @@ intel_cards.append(card_numeric_html(
 malacca_sev = intel_data.get("malacca_severity")
 malacca_status = intel_data.get("malacca_status")
 if malacca_sev is None and malacca_status is None:
+    # Peace-time fallback: render nominal status with (baseline) tag.
+    # The probability engine still sees malacca_severity == None and
+    # therefore does not fire any rules — fallback is display-only.
     intel_cards.append(card_status_html(
         "MALACCA STATUS",
         MALACCA_BASELINE_SEVERITY.upper(),
@@ -1660,6 +1844,9 @@ else:
     ))
 
 if helium_exhausted():
+    # Past the 48-day boil-off threshold — render as a status card
+    # showing EXHAUSTED rather than a price card. The price field is
+    # no longer the meaningful signal; supply integrity is.
     _he_days = helium_days_elapsed()
     intel_cards.append(card_status_html(
         f"HELIUM ($/Mcf) — DAY {_he_days}/{HELIUM_BOIL_OFF_DAYS}+",
@@ -1705,6 +1892,9 @@ elif rice_ban == "INACTIVE":
         "No active Indian rice export ban currently in force.",
     ))
 else:
+    # Peace-time fallback: assume INACTIVE and tag as baseline. The
+    # engine still sees india_rice_ban_status == None upstream so the
+    # ACTIVE-only probability shift does not fire.
     intel_cards.append(card_status_html(
         "INDIA RICE EXPORT BAN",
         RICE_BAN_BASELINE,
@@ -1733,6 +1923,10 @@ elif intel_meta["fetched_at"]:
     )
 
 st.markdown("&nbsp;", unsafe_allow_html=True)
+
+# `adjusted` was computed in the consolidated DATA FETCH block at the
+# top of the page; the Strategic Outlook above and the matrix bars
+# below both read from it.
 
 # ---------- PROBABILITY MATRIX & THRESHOLDS ----------
 left, right = st.columns([1.2, 1])
@@ -1770,6 +1964,11 @@ with right:
     malacca_sev = intel_data.get("malacca_severity")
     rice_ban_v = intel_data.get("india_rice_ban_status")
 
+    # 7-tuple per threshold: (name, val, thr, cur, op, sfx, baseline).
+    # baseline=None → keep DATA UNAVAILABLE behavior (yfinance tickers).
+    # baseline=number → fall back to baseline display when val is None
+    # (Perplexity intel). The probability engine still sees None upstream
+    # so the math is unchanged.
     thresholds = [
         ("Brent > $130", prices["Brent"], 130, "$", "gt", "", None),
         ("Brent > $115", prices["Brent"], 115, "$", "gt", "", None),
@@ -1832,6 +2031,8 @@ with right:
             unsafe_allow_html=True,
         )
 
+    # Malacca qualitative threshold row — fall back to nominal baseline
+    # if Perplexity returned no severity flag.
     if malacca_sev is None:
         m_status = '<span style="color:#10b981;">● NOMINAL</span>'
         m_live = (
@@ -1857,6 +2058,8 @@ with right:
         unsafe_allow_html=True,
     )
 
+    # India rice ban qualitative threshold row — fall back to INACTIVE
+    # baseline when Perplexity returned no usable flag.
     if rice_ban_v is None:
         r_status = '<span style="color:#10b981;">● NOMINAL</span>'
         r_live = (
@@ -1880,6 +2083,7 @@ with right:
     )
 
     # ----- v11 physical-logic gates -----
+    # OECD commercial inventory operational minimum
     if OECD_INVENTORY_BREACH:
         oecd_live = f"< {OECD_INVENTORY_OPERATIONAL_MIN_MB} MB"
         oecd_status = (
@@ -1900,6 +2104,7 @@ with right:
         unsafe_allow_html=True,
     )
 
+    # Helium boil-off (days since QA force majeure)
     _he_days = helium_days_elapsed()
     if helium_exhausted():
         he_live = f"day {_he_days} / {HELIUM_BOIL_OFF_DAYS}"
@@ -1919,6 +2124,7 @@ with right:
         unsafe_allow_html=True,
     )
 
+    # Jet fuel "Payload Displacement" gate (>55% above baseline)
     _jet_pct_tm = jet_spike_pct(jet_v)
     if _jet_pct_tm is None:
         jp_live = "—"
@@ -1946,6 +2152,8 @@ with right:
     )
 
     # ----- Equity Proxy Radar rows -----
+    # Show daily spike + tier glyph instead of raw dollar price.
+    # Severity tiers: |Δ| < 5% NOMINAL · >= 5% WARNING · >= 12% CRITICAL.
     for ticker_key in EQUITY_TICKERS:
         meta = EQUITY_PROXY_META[ticker_key]
         change = equity_changes.get(ticker_key)
@@ -2015,4 +2223,3 @@ st.markdown(
     'is informational, not investment advice.</div>',
     unsafe_allow_html=True,
 )
-```
