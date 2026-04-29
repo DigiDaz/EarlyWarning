@@ -153,6 +153,72 @@ CUSTOM_CSS = """
         box-shadow: 0 0 12px rgba(255, 50, 50, 0.25),
                     inset 0 0 1px rgba(255, 50, 50, 0.40);
     }
+    /* Strategic Outlook narrative card. The accent color is injected
+       per-render via inline styles on border-left, title, prob badge,
+       bullet markers, and a soft diagonal background wash. */
+    .scenario-narrative {
+        border: 1px solid #1f2937;
+        border-left-width: 4px;
+        border-radius: 6px;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1rem;
+        font-family: 'Courier New', monospace;
+        position: relative;
+        overflow: hidden;
+    }
+    .scenario-narrative-header {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .scenario-narrative-tag {
+        font-size: 0.7rem;
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 3px;
+    }
+    .scenario-narrative-title {
+        font-size: 1.5rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        font-weight: 600;
+    }
+    .scenario-narrative-prob {
+        margin-left: auto;
+        font-size: 0.85rem;
+        padding: 4px 12px;
+        border-radius: 4px;
+        border: 1px solid;
+        letter-spacing: 1px;
+    }
+    .scenario-narrative-bullets {
+        list-style: none;
+        padding-left: 0;
+        margin: 0;
+    }
+    .scenario-narrative-bullets li {
+        padding: 8px 0 8px 28px;
+        position: relative;
+        color: #d1d5db;
+        font-size: 0.95rem;
+        line-height: 1.5;
+    }
+    .scenario-narrative-bullets li + li {
+        border-top: 1px solid rgba(255,255,255,0.04);
+    }
+    .scenario-narrative-bullets li::before {
+        content: "▸";
+        position: absolute;
+        left: 4px;
+        top: 8px;
+        font-weight: bold;
+        font-size: 1rem;
+        color: var(--accent, #9ca3af);
+    }
     /* Subtle indicator shown when a card or threshold row is sitting on
        the hardcoded peace-time baseline because Perplexity returned
        0/null/missing. The number renders normally; the tag tells the
@@ -332,6 +398,39 @@ PROB_COLORS = {
     "Slow Normalization": "#3b82f6",
     "Base Case": "#eab308",
     "Tail Risk": "#dc2626",
+}
+
+# Strategic Outlook bullets for each scenario. The card under the
+# Probability Matrix renders the narrative for whichever scenario
+# currently has the highest probability. Color theming is reused from
+# PROB_COLORS so the outlook card matches its bar in the matrix.
+SCENARIO_NARRATIVES = {
+    "Best Case": [
+        "Hormuz reopens by Q3 2026.",
+        "Phased ceasefire.",
+        "Brent retraces to $75–85.",
+        "Asian manufacturing recovers within Q4.",
+    ],
+    "Slow Normalization": [
+        "Partial Hormuz reopening end-2026.",
+        "Repairs grind on Gulf infrastructure.",
+        "Brent $90–105 sustained.",
+        "Sticky 5% inflation.",
+    ],
+    "Base Case": [
+        "Hormuz remains contested through 2027.",
+        "Ras Laffan offline 3+ years.",
+        "Brent $100–120 sustained.",
+        "Winter 2026/27 EU gas crisis.",
+        "Multiple food-export bans cascade.",
+    ],
+    "Tail Risk": [
+        "Cascading breakdown.",
+        "Malacca incident or subsea cable attacks.",
+        "Brent $130–160+.",
+        "Hospital supply rationing.",
+        "Recession in EU and US.",
+    ],
 }
 
 SEVERITY_COLORS = {
@@ -1023,6 +1122,47 @@ def evaluate_playbook(prices: dict, intel: dict | None = None,
     return actions
 
 
+def render_strategic_outlook(adjusted: dict) -> str:
+    """Pick the highest-probability scenario from `adjusted` and return
+    a single self-contained HTML card with its narrative bullets.
+
+    Color theming is sourced from PROB_COLORS so the outlook always
+    matches the matrix bar above. The accent color is injected via the
+    --accent CSS variable so bullet glyphs pick it up without each
+    <li> needing its own inline style."""
+    if not adjusted:
+        return ""
+    lead = max(adjusted, key=adjusted.get)
+    pct = adjusted[lead]
+    color = PROB_COLORS.get(lead, "#9ca3af")
+    bullets = SCENARIO_NARRATIVES.get(lead, [])
+
+    bullets_html = "".join(
+        f"<li>{html.escape(b)}</li>" for b in bullets
+    )
+    # Soft diagonal wash of the accent color for a "lit-up" feel.
+    bg = (
+        f"linear-gradient(135deg, {color}1F 0%, "
+        f"rgba(17,24,39,0.0) 70%), #111827"
+    )
+    return (
+        f'<div class="scenario-narrative" '
+        f'style="--accent: {color}; '
+        f'border-left-color: {color}; '
+        f'background: {bg};">'
+        f'<div class="scenario-narrative-header">'
+        f'<span class="scenario-narrative-tag">LEAD SCENARIO</span>'
+        f'<span class="scenario-narrative-title" '
+        f'style="color: {color};">{html.escape(lead)}</span>'
+        f'<span class="scenario-narrative-prob" '
+        f'style="color: {color}; border-color: {color}; '
+        f'background: {color}1A;">{pct:.1f}% probability</span>'
+        f'</div>'
+        f'<ul class="scenario-narrative-bullets">{bullets_html}</ul>'
+        f'</div>'
+    )
+
+
 def render_prob_bar(label: str, pct: float, base_pct: float):
     color = PROB_COLORS.get(label, "#9ca3af")
     delta = pct - base_pct
@@ -1102,12 +1242,17 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
         delta_str = f"{delta_part}{suffix} ({delta_pct:+.1f}%)"
     else:
         delta_str = f"{delta_part}{suffix} (vs 0 baseline)"
-    if delta == 0:
-        delta_class = "delta-flat"
-    elif bearish_on_rise:
-        delta_class = "delta-bear" if delta > 0 else "delta-bull"
-    else:
-        delta_class = "delta-bear" if delta < 0 else "delta-bull"
+    # Pill color follows the Threshold Monitor verdict, NOT the daily
+    # delta direction. This kills the "false green" bug: e.g., Gold has
+    # bearish_on_rise=False (haven-flow framing) but its threshold is
+    # `> $4600`, so a $5000 reading USED to render a green pill (delta
+    # vs baseline is positive in the "good" direction) while the card
+    # border was red (breached). With this rule:
+    #   breach=True  → red pill, regardless of which way the day moved
+    #   breach=False → green pill (only NOMINAL gets green)
+    # `bearish_on_rise` is now informational only — kept on the
+    # signature for compatibility but no longer drives pill color.
+    delta_class = "delta-bear" if breach else "delta-bull"
     value_display = f"{currency}{fmt.format(value)}{suffix}"
     return (
         f'<div class="{card_class}">'
@@ -1700,6 +1845,19 @@ with right:
             f'<span>{eq_status}</span></div>',
             unsafe_allow_html=True,
         )
+
+st.markdown("&nbsp;", unsafe_allow_html=True)
+
+# ---------- STRATEGIC OUTLOOK ----------
+# Dynamic narrative card driven by whichever scenario currently has
+# the highest probability in `adjusted` (computed by adjust_probabilities
+# above inside the `with left:` block — Python `with` does not create
+# a new scope, so `adjusted` is in scope here).
+st.markdown(
+    '<h3 class="hud-title">◆ Strategic Outlook</h3>',
+    unsafe_allow_html=True,
+)
+st.markdown(render_strategic_outlook(adjusted), unsafe_allow_html=True)
 
 st.markdown("&nbsp;", unsafe_allow_html=True)
 
