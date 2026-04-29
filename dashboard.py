@@ -70,7 +70,10 @@ CUSTOM_CSS = """
         border-radius: 6px;
         padding: 1rem;
         font-family: 'Courier New', monospace;
-        min-height: 140px;
+        /* Bumped from 140 to 160 so equity cards comfortably fit the
+           new "why it matters" context footer without other sections
+           visually disagreeing on row height. */
+        min-height: 160px;
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -79,12 +82,17 @@ CUSTOM_CSS = """
     .intel-card-label {
         color: #9ca3af;
         text-transform: uppercase;
-        letter-spacing: 1.5px;
+        letter-spacing: 1px;
         font-size: 0.7rem;
         line-height: 1.3;
         overflow: hidden;
+        /* Allow up to 2 lines so longer descriptive labels like
+           "FERTILIZER & FOOD SECURITY (CF)" don't get clipped at
+           240px column width. */
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
         text-overflow: ellipsis;
-        white-space: nowrap;
         margin-bottom: 0.5rem;
     }
     .intel-card-value {
@@ -152,6 +160,37 @@ CUSTOM_CSS = """
         border-color: rgba(255, 50, 50, 0.80) !important;
         box-shadow: 0 0 12px rgba(255, 50, 50, 0.25),
                     inset 0 0 1px rgba(255, 50, 50, 0.40);
+    }
+    /* Equity Proxy Radar: small explainer paragraph rendered between
+       the section header and the card grid. Flat block, low-key. */
+    .radar-explainer {
+        background-color: #0d1218;
+        border-left: 2px solid #1f2937;
+        color: #9ca3af;
+        font-family: 'Courier New', monospace;
+        font-size: 0.78rem;
+        line-height: 1.55;
+        padding: 0.65rem 0.9rem;
+        margin-bottom: 1rem;
+        letter-spacing: 0.3px;
+    }
+    /* "Why it matters" footer line on each equity card. Shows below
+       the delta pill, separated by a faint divider. Stays small and
+       subtle so it doesn't compete with price + tier readout. */
+    .intel-card-context {
+        font-size: 0.7rem;
+        color: #6b7280;
+        font-style: italic;
+        line-height: 1.35;
+        letter-spacing: 0.2px;
+        margin-top: 0.6rem;
+        padding-top: 0.5rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.04);
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        text-overflow: ellipsis;
     }
     /* Strategic Outlook narrative card. The accent color is injected
        per-render via inline styles on border-left, title, prob badge,
@@ -343,18 +382,33 @@ EQUITY_TICKERS = {
 }
 
 EQUITY_PROXY_META = {
-    "CF":   {"name": "CF INDUSTRIES",  "proxy_for": "urea / fertilizer",
+    "CF":   {"name": "FERTILIZER & FOOD SECURITY (CF)",
+             "proxy_for": "urea / fertilizer",
              "audit": "fertilizer and urea supply chain — food-cost "
-                      "pass-through window opening"},
-    "DOW":  {"name": "DOW INC.",       "proxy_for": "PE/PP resins",
+                      "pass-through window opening",
+             "why_it_matters":
+                 "Leading indicator for Spring 2027 food harvest yields."},
+    "DOW":  {"name": "RESINS & MEDICAL PLASTICS (DOW)",
+             "proxy_for": "PE/PP resins",
              "audit": "petrochemical and base-resin supply chain — "
-                      "packaging and medical device exposure"},
-    "APD":  {"name": "AIR PRODUCTS",   "proxy_for": "helium / industrial gas",
+                      "packaging and medical device exposure",
+             "why_it_matters":
+                 "Tracks PE/PP feedstock availability for sterile "
+                 "medical supplies."},
+    "APD":  {"name": "AI HARDWARE & HELIUM (APD)",
+             "proxy_for": "helium / industrial gas",
              "audit": "helium supply chain — semiconductor, MRI and "
-                      "cryogenic exposure"},
-    "JETS": {"name": "JETS ETF",       "proxy_for": "aviation / jet fuel",
+                      "cryogenic exposure",
+             "why_it_matters":
+                 "Critical proxy for semiconductor yields and MRI "
+                 "coolant stocks."},
+    "JETS": {"name": "AIR-FREIGHT & JET FUEL (JETS)",
+             "proxy_for": "aviation / jet fuel",
              "audit": "aviation and jet-fuel exposure — air-freight cost "
-                      "and travel-budget pressure"},
+                      "and travel-budget pressure",
+             "why_it_matters":
+                 "Signals cargo payload displacement and aviation fuel "
+                 "rationing."},
 }
 
 # Severity tiers for absolute daily % move on the proxy. Symmetric so
@@ -1428,6 +1482,15 @@ st.markdown(
     '<h3 class="hud-title">◆ Equity Proxy Radar</h3>',
     unsafe_allow_html=True,
 )
+st.markdown(
+    '<div class="radar-explainer">'
+    "These equities are the most liquid leading indicators for "
+    "physical commodities currently blocked by the Hormuz conflict. "
+    "They reflect institutional &ldquo;smart money&rdquo; pricing in "
+    "shortages before they reach the public news cycle."
+    '</div>',
+    unsafe_allow_html=True,
+)
 
 with st.spinner("Pulling equity proxy snapshots..."):
     equity_snapshots = {
@@ -1452,11 +1515,22 @@ EQUITY_TIER_GLYPH = {
 def card_equity_html(ticker_key, snapshot):
     """Equity proxy card. WARNING and CRITICAL tiers (|daily move| >= 5%
     and >= 12%) both raise the High-Alert breach state — red border,
-    soft red glow, red delta pill. NOMINAL stays plain."""
+    soft red glow, red delta pill. NOMINAL stays plain.
+
+    Each card carries a small italic 'why it matters' footer sourced
+    from EQUITY_PROXY_META, explaining the strategic linkage between
+    the equity move and the underlying physical-commodity risk."""
     meta = EQUITY_PROXY_META[ticker_key]
-    label = f"{meta['name']}  ({ticker_key})"
-    label_safe = html.escape(label)
+    # meta['name'] already embeds the ticker in parens, so don't
+    # append it again — that would render "(CF)  (CF)".
+    label_safe = html.escape(meta["name"])
     proxy_safe = html.escape(meta["proxy_for"])
+    context_safe = html.escape(meta.get("why_it_matters", ""))
+    context_html = (
+        f'<div class="intel-card-context">{context_safe}</div>'
+        if context_safe
+        else ""
+    )
     price = snapshot.get("price")
     change = snapshot.get("pct_change")
     sev = equity_severity(change)
@@ -1468,6 +1542,7 @@ def card_equity_html(ticker_key, snapshot):
             f'<div class="intel-card-value intel-card-unavail">'
             f'DATA UNAVAILABLE</div>'
             f'<div class="intel-card-delta">proxy: {proxy_safe}</div>'
+            f'{context_html}'
             f'</div>'
         )
 
@@ -1499,6 +1574,7 @@ def card_equity_html(ticker_key, snapshot):
         f'<div class="intel-card-label">{label_safe}</div>'
         f'<div class="intel-card-value">{price_str}</div>'
         f'{delta_html}'
+        f'{context_html}'
         f'</div>'
     )
 
