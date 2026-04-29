@@ -124,6 +124,29 @@ CUSTOM_CSS = """
     .delta-bear { color: #f87171; }
     .delta-bull { color: #4ade80; }
     .delta-flat { color: #9ca3af; }
+    /* Subtle indicator shown when a card or threshold row is sitting on
+       the hardcoded peace-time baseline because Perplexity returned
+       0/null/missing. The number renders normally; the tag tells the
+       user they are looking at the baseline, not a live read. */
+    .baseline-tag {
+        font-size: 0.65rem;
+        color: #6b7280;
+        font-style: italic;
+        letter-spacing: 0.5px;
+        margin-left: 6px;
+        text-transform: lowercase;
+        white-space: nowrap;
+    }
+    .intel-card-baseline-note {
+        font-size: 0.78rem;
+        color: #6b7280;
+        font-style: italic;
+        margin-top: auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        letter-spacing: 0.5px;
+    }
     .prob-bar-container {
         background-color: #111827;
         border: 1px solid #1f2937;
@@ -213,14 +236,60 @@ TICKERS = {
     "Silver": "SI=F",
 }
 
+# Equity Proxy Radar — equities whose daily move serves as a real-time
+# proxy for the corresponding intel input. A large absolute spike on
+# any of these is taken as an early-warning signal even if the
+# underlying physical-market data has not been updated yet.
+EQUITY_TICKERS = {
+    "CF":   "CF",     # CF Industries Holdings (fertilizer / ammonia)
+    "DOW":  "DOW",    # Dow Inc. (commodity petrochemicals / PE-PP)
+    "APD":  "APD",    # Air Products & Chemicals (industrial gases)
+    "JETS": "JETS",   # U.S. Global Jets ETF (airlines / jet fuel)
+}
+
+EQUITY_PROXY_META = {
+    "CF":   {"name": "CF INDUSTRIES",  "proxy_for": "urea / fertilizer",
+             "audit": "fertilizer and urea supply chain — food-cost "
+                      "pass-through window opening"},
+    "DOW":  {"name": "DOW INC.",       "proxy_for": "PE/PP resins",
+             "audit": "petrochemical and base-resin supply chain — "
+                      "packaging and medical device exposure"},
+    "APD":  {"name": "AIR PRODUCTS",   "proxy_for": "helium / industrial gas",
+             "audit": "helium supply chain — semiconductor, MRI and "
+                      "cryogenic exposure"},
+    "JETS": {"name": "JETS ETF",       "proxy_for": "aviation / jet fuel",
+             "audit": "aviation and jet-fuel exposure — air-freight cost "
+                      "and travel-budget pressure"},
+}
+
+# Severity tiers for absolute daily % move on the proxy. Symmetric so
+# a large drop (e.g., JETS down 14%) flags the same way as a large
+# rise on a fertilizer name (e.g., CF up 14%).
+EQUITY_THRESHOLDS = {
+    "warning":  5.0,
+    "critical": 12.0,
+}
+
+# Pre-crisis "peace-time" baselines. These are used for two things:
+# (1) delta math when live data is present, and (2) display fallback when
+# Perplexity returns 0/null/missing. A fallback NEVER feeds the
+# probability engine — adjust_probabilities() / evaluate_playbook()
+# continue to receive None upstream so the math is unchanged.
 INTEL_BASELINE = {
     "panama_canal_neopanamax_price": 1_500_000.0,
-    "urea_spot_price_ton": 360.0,
-    "hormuz_daily_transit_count": 50.0,
-    "helium_spot_price_mcf": 350.0,
+    "urea_spot_price_ton": 320.0,
+    "hormuz_daily_transit_count": 80.0,
+    "helium_spot_price_mcf": 400.0,
     "asian_pe_pp_resin_spike": 0.0,
-    "jet_fuel_price_ton": 700.0,
+    "jet_fuel_price_ton": 850.0,
 }
+
+# Qualitative peace-time defaults (no numeric baseline applies).
+MALACCA_BASELINE_SEVERITY = "nominal"
+MALACCA_BASELINE_STATUS = (
+    "Peace-time baseline — no active maritime disruption flagged."
+)
+RICE_BAN_BASELINE = "INACTIVE"
 
 BASE_PROBS = {
     "Best Case": 10.0,
@@ -322,6 +391,45 @@ def fetch_price(ticker: str) -> float | None:
         return float(data["Close"].iloc[-1])
     except Exception:
         return None
+
+
+@st.cache_data(ttl=86400)
+def fetch_equity_snapshot(ticker: str) -> dict:
+    """Return {"price": last close, "pct_change": daily % vs prior close}.
+    Either field can be None if the data is unavailable. period=5d
+    guarantees we get at least two trading-day closes even after a
+    long weekend or holiday. Cached 24h alongside fetch_price."""
+    out = {"price": None, "pct_change": None}
+    try:
+        data = yf.Ticker(ticker).history(period="5d", interval="1d")
+        if data.empty:
+            return out
+        out["price"] = float(data["Close"].iloc[-1])
+        if len(data) < 2:
+            return out
+        prior = float(data["Close"].iloc[-2])
+        if prior == 0:
+            return out
+        out["pct_change"] = ((out["price"] - prior) / prior) * 100.0
+    except Exception:
+        return out
+    return out
+
+
+def equity_severity(pct_change):
+    """Tier on absolute daily move:
+        |chg| >= 12% → 'critical'
+        |chg| >=  5% → 'warning'
+        otherwise    → 'nominal'
+    Returns None if pct_change is None."""
+    if pct_change is None:
+        return None
+    abs_change = abs(pct_change)
+    if abs_change >= EQUITY_THRESHOLDS["critical"]:
+        return "critical"
+    if abs_change >= EQUITY_THRESHOLDS["warning"]:
+        return "warning"
+    return "nominal"
 
 
 def _coerce_number(value):
@@ -486,8 +594,10 @@ def fetch_perplexity_intel(api_key: str) -> dict:
     return result
 
 
-def adjust_probabilities(prices: dict, intel: dict | None = None) -> dict:
+def adjust_probabilities(prices: dict, intel: dict | None = None,
+                         equity_changes: dict | None = None) -> dict:
     intel = intel or {}
+    equity_changes = equity_changes or {}
 
     # Hard override: a critical Malacca event collapses the matrix to
     # max Tail Risk. Skip every other adjustment.
@@ -582,6 +692,31 @@ def adjust_probabilities(prices: dict, intel: dict | None = None) -> dict:
         probs["Best Case"] -= 5
         probs["Slow Normalization"] -= 5
 
+    # Equity Proxy Radar: every WARNING tier nudges Base Case up
+    # slightly (uncertainty rising); every CRITICAL tier pushes Tail
+    # Risk meaningfully. Effects accumulate across the four proxies so
+    # broad-based equity stress is scored more aggressively than a
+    # single isolated mover.
+    warning_count = 0
+    critical_count = 0
+    for ticker_key in EQUITY_TICKERS:
+        sev = equity_severity(equity_changes.get(ticker_key))
+        if sev == "warning":
+            warning_count += 1
+        elif sev == "critical":
+            critical_count += 1
+
+    if warning_count > 0:
+        probs["Base Case"] += 2 * warning_count
+        probs["Best Case"] -= 1 * warning_count
+        probs["Slow Normalization"] -= 1 * warning_count
+
+    if critical_count > 0:
+        probs["Tail Risk"] += 8 * critical_count
+        probs["Base Case"] -= 3 * critical_count
+        probs["Best Case"] -= 3 * critical_count
+        probs["Slow Normalization"] -= 2 * critical_count
+
     for k in probs:
         probs[k] = max(0.0, probs[k])
     total = sum(probs.values())
@@ -591,9 +726,11 @@ def adjust_probabilities(prices: dict, intel: dict | None = None) -> dict:
     return probs
 
 
-def evaluate_playbook(prices: dict, intel: dict | None = None) -> list[dict]:
+def evaluate_playbook(prices: dict, intel: dict | None = None,
+                      equity_changes: dict | None = None) -> list[dict]:
     actions = []
     intel = intel or {}
+    equity_changes = equity_changes or {}
     brent = prices.get("Brent")
     ttf = prices.get("TTF")
     gold = prices.get("Gold")
@@ -824,6 +961,34 @@ def evaluate_playbook(prices: dict, intel: dict | None = None) -> list[dict]:
                          "Lock summer/holiday travel now if possible.",
         })
 
+    # Equity Proxy Radar: a CRITICAL tier (|daily move| >= 12%) on any
+    # proxy fires its own [CRITICAL] action with explicit advice to
+    # audit the corresponding supply chain.
+    for ticker_key in EQUITY_TICKERS:
+        change = equity_changes.get(ticker_key)
+        if equity_severity(change) != "critical":
+            continue
+        meta = EQUITY_PROXY_META[ticker_key]
+        direction = "+" if change >= 0 else ""
+        actions.append({
+            "level": "critical",
+            "trigger": (
+                f"{ticker_key} spike detected — {meta['name']} "
+                f"({meta['proxy_for']}) {direction}{change:.1f}% on the day"
+            ),
+            "business": (
+                f"Audit {meta['audit']} immediately. The market is "
+                f"pricing in stress on this input ahead of the physical "
+                f"feed. Brief procurement, finance, and legal; tighten "
+                f"the next 72h decision window."
+            ),
+            "household": (
+                "Equity-market early-warning signal active for this "
+                "input. Anticipate downstream consumer-price effects "
+                "in the linked goods category over the next 4-8 weeks."
+            ),
+        })
+
     return actions
 
 
@@ -848,12 +1013,38 @@ def render_prob_bar(label: str, pct: float, base_pct: float):
 
 
 def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
-                      fmt="{:,.0f}", suffix="", delta_decimals=0):
+                      fmt="{:,.0f}", suffix="", delta_decimals=0,
+                      use_baseline_fallback=True):
     """Numeric card returning a single HTML string for the .intel-grid
-    wrapper. value=None → DATA UNAVAILABLE. Upstream parsing already
-    converts 0 / negatives to None so we never show, alert on, or score
-    a placeholder zero."""
+    wrapper.
+
+    Display rules:
+      - If `value` is a real number, show it with the live delta vs
+        baseline.
+      - If `value` is None (Perplexity returned 0/null/missing) and
+        `use_baseline_fallback` is True (default for intel cards), show
+        the hardcoded peace-time baseline value with a subtle
+        "(baseline)" tag in place of the delta.
+      - If `value` is None and fallback is disabled (e.g., yfinance
+        ticker fetch failure), fall through to DATA UNAVAILABLE.
+
+    The probability engine never sees the baseline — it operates on the
+    raw `intel_data` dict where missing values are still None. Fallback
+    is presentation-only."""
     label_safe = html.escape(label)
+
+    if value is None and use_baseline_fallback and baseline is not None:
+        value_display = f"{currency}{fmt.format(baseline)}{suffix}"
+        return (
+            f'<div class="intel-card">'
+            f'<div class="intel-card-label">{label_safe}</div>'
+            f'<div class="intel-card-value">{html.escape(value_display)}'
+            f'<span class="baseline-tag">(baseline)</span></div>'
+            f'<div class="intel-card-baseline-note">'
+            f'peace-time baseline · no live read</div>'
+            f'</div>'
+        )
+
     if value is None:
         return (
             f'<div class="intel-card">'
@@ -863,6 +1054,7 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
             f'<div class="intel-card-delta">&nbsp;</div>'
             f'</div>'
         )
+
     delta = value - baseline
     delta_fmt = f"{{:+,.{delta_decimals}f}}"
     delta_part = delta_fmt.format(delta)
@@ -888,10 +1080,16 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
     )
 
 
-def card_status_html(label, value_text, value_color, detail):
+def card_status_html(label, value_text, value_color, detail,
+                     is_baseline=False):
     """Qualitative card returning a single HTML string. value_text=None
-    → DATA UNAVAILABLE. The detail string can contain Perplexity-sourced
-    text and is HTML-escaped to defend against payload tampering."""
+    → DATA UNAVAILABLE (used only when no peace-time baseline applies).
+
+    When `is_baseline` is True, a small italic "(baseline)" tag is
+    appended to the value and the detail line is rendered in muted
+    grey. The card otherwise looks like a live nominal reading. The
+    detail string can contain Perplexity-sourced text and is
+    HTML-escaped to defend against payload tampering."""
     label_safe = html.escape(label)
     detail_safe = html.escape(detail) if detail else "&nbsp;"
     if value_text is None:
@@ -904,12 +1102,18 @@ def card_status_html(label, value_text, value_color, detail):
             f'</div>'
         )
     color = html.escape(value_color or "#9ca3af")
+    baseline_tag = (
+        '<span class="baseline-tag">(baseline)</span>' if is_baseline else ""
+    )
+    detail_class = (
+        "intel-card-baseline-note" if is_baseline else "intel-card-detail"
+    )
     return (
         f'<div class="intel-card" style="border-color: {color};">'
         f'<div class="intel-card-label">{label_safe}</div>'
         f'<div class="intel-card-value" style="color: {color};">'
-        f'● {html.escape(value_text)}</div>'
-        f'<div class="intel-card-detail">{detail_safe}</div>'
+        f'● {html.escape(value_text)}{baseline_tag}</div>'
+        f'<div class="{detail_class}">{detail_safe}</div>'
         f'</div>'
     )
 
@@ -975,28 +1179,125 @@ with st.spinner("Pulling live commodity feed..."):
 st.markdown('<h3 class="hud-title">◆ Commodity Telemetry</h3>',
             unsafe_allow_html=True)
 
+# Commodity tickers do NOT use baseline fallback — yfinance failures are
+# rare and the pre-crisis $100 Brent / $2,300 Gold reference numbers
+# would mislead viewers if shown as a stand-in. Keep DATA UNAVAILABLE
+# behavior here. Baseline-fallback is reserved for Perplexity intel.
 commodity_cards = [
     card_numeric_html(
         "BRENT CRUDE  (BZ=F)", prices["Brent"], BASELINE["Brent"],
         "$", True, fmt="{:,.2f}", delta_decimals=2,
+        use_baseline_fallback=False,
     ),
     card_numeric_html(
         "TTF GAS  (TTF=F)", prices["TTF"], BASELINE["TTF"],
         "€", True, fmt="{:,.2f}", delta_decimals=2,
+        use_baseline_fallback=False,
     ),
     # Gold/Silver: raw yfinance Close, no multipliers, baseline kept at the
     # pre-crisis $2,300 / $28 reference levels for delta math.
     card_numeric_html(
         "GOLD  (GC=F)", prices["Gold"], BASELINE["Gold"],
         "$", False, fmt="{:,.2f}", delta_decimals=2,
+        use_baseline_fallback=False,
     ),
     card_numeric_html(
         "SILVER  (SI=F)", prices["Silver"], BASELINE["Silver"],
         "$", False, fmt="{:,.2f}", delta_decimals=2,
+        use_baseline_fallback=False,
     ),
 ]
 st.markdown(
     '<div class="intel-grid">' + "".join(commodity_cards) + '</div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown("&nbsp;", unsafe_allow_html=True)
+
+# ---------- EQUITY PROXY RADAR ----------
+# Daily % change on these four equities serves as a real-time proxy
+# for the corresponding intel inputs. A WARNING tier (|chg| >= 5%) or
+# CRITICAL tier (|chg| >= 12%) on any of them feeds the probability
+# engine and the Threshold Monitor below.
+st.markdown(
+    '<h3 class="hud-title">◆ Equity Proxy Radar</h3>',
+    unsafe_allow_html=True,
+)
+
+with st.spinner("Pulling equity proxy snapshots..."):
+    equity_snapshots = {
+        key: fetch_equity_snapshot(tk) for key, tk in EQUITY_TICKERS.items()
+    }
+equity_changes = {
+    key: snap.get("pct_change") for key, snap in equity_snapshots.items()
+}
+
+EQUITY_TIER_COLORS = {
+    "nominal": "#10b981",
+    "warning": "#eab308",
+    "critical": "#dc2626",
+}
+EQUITY_TIER_GLYPH = {
+    "nominal": "🟢",
+    "warning": "🟡",
+    "critical": "🔴",
+}
+
+
+def card_equity_html(ticker_key, snapshot):
+    """Equity proxy card. Border + delta color reflect the severity
+    tier driven by the absolute daily move; the tier label and glyph
+    match the Threshold Monitor convention."""
+    meta = EQUITY_PROXY_META[ticker_key]
+    label = f"{meta['name']}  ({ticker_key})"
+    label_safe = html.escape(label)
+    proxy_safe = html.escape(meta["proxy_for"])
+    price = snapshot.get("price")
+    change = snapshot.get("pct_change")
+    sev = equity_severity(change)
+
+    if price is None and change is None:
+        return (
+            f'<div class="intel-card">'
+            f'<div class="intel-card-label">{label_safe}</div>'
+            f'<div class="intel-card-value intel-card-unavail">'
+            f'DATA UNAVAILABLE</div>'
+            f'<div class="intel-card-delta">proxy: {proxy_safe}</div>'
+            f'</div>'
+        )
+
+    color = EQUITY_TIER_COLORS.get(sev or "nominal", "#9ca3af")
+    glyph = EQUITY_TIER_GLYPH.get(sev or "nominal", "●")
+    tier_label = (sev or "nominal").upper()
+    price_str = (
+        f"${price:,.2f}" if price is not None else "—"
+    )
+    if change is None:
+        delta_html = (
+            f'<div class="intel-card-delta">'
+            f'proxy: {proxy_safe} · daily Δ unavailable</div>'
+        )
+    else:
+        change_str = f"{'+' if change >= 0 else ''}{change:.2f}%"
+        delta_html = (
+            f'<div class="intel-card-delta" style="color: {color};">'
+            f'{glyph} {tier_label} &nbsp;·&nbsp; {change_str} &nbsp;·&nbsp; '
+            f'{proxy_safe}</div>'
+        )
+    return (
+        f'<div class="intel-card" style="border-color: {color};">'
+        f'<div class="intel-card-label">{label_safe}</div>'
+        f'<div class="intel-card-value">{price_str}</div>'
+        f'{delta_html}'
+        f'</div>'
+    )
+
+
+equity_cards = [
+    card_equity_html(key, equity_snapshots[key]) for key in EQUITY_TICKERS
+]
+st.markdown(
+    '<div class="intel-grid">' + "".join(equity_cards) + '</div>',
     unsafe_allow_html=True,
 )
 
@@ -1052,9 +1353,15 @@ intel_cards.append(card_numeric_html(
 malacca_sev = intel_data.get("malacca_severity")
 malacca_status = intel_data.get("malacca_status")
 if malacca_sev is None and malacca_status is None:
+    # Peace-time fallback: render nominal status with (baseline) tag.
+    # The probability engine still sees malacca_severity == None and
+    # therefore does not fire any rules — fallback is display-only.
     intel_cards.append(card_status_html(
-        "MALACCA STATUS", None, None,
-        "Perplexity returned no usable status for this strait.",
+        "MALACCA STATUS",
+        MALACCA_BASELINE_SEVERITY.upper(),
+        SEVERITY_COLORS.get(MALACCA_BASELINE_SEVERITY, "#9ca3af"),
+        MALACCA_BASELINE_STATUS,
+        is_baseline=True,
     ))
 else:
     sev = malacca_sev or "nominal"
@@ -1097,9 +1404,15 @@ elif rice_ban == "INACTIVE":
         "No active Indian rice export ban currently in force.",
     ))
 else:
+    # Peace-time fallback: assume INACTIVE and tag as baseline. The
+    # engine still sees india_rice_ban_status == None upstream so the
+    # ACTIVE-only probability shift does not fire.
     intel_cards.append(card_status_html(
-        "INDIA RICE EXPORT BAN", None, None,
-        "Perplexity did not return a usable ACTIVE/INACTIVE flag.",
+        "INDIA RICE EXPORT BAN",
+        RICE_BAN_BASELINE,
+        "#10b981",
+        "Peace-time baseline — no active export ban on file.",
+        is_baseline=True,
     ))
 
 st.markdown(
@@ -1129,7 +1442,7 @@ left, right = st.columns([1.2, 1])
 with left:
     st.markdown('<h3 class="hud-title">◆ Scenario Probability Matrix</h3>',
                 unsafe_allow_html=True)
-    adjusted = adjust_probabilities(prices, intel_data)
+    adjusted = adjust_probabilities(prices, intel_data, equity_changes)
     for label in ["Best Case", "Slow Normalization", "Base Case", "Tail Risk"]:
         render_prob_bar(label, adjusted[label], BASE_PROBS[label])
 
@@ -1160,37 +1473,63 @@ with right:
     malacca_sev = intel_data.get("malacca_severity")
     rice_ban_v = intel_data.get("india_rice_ban_status")
 
+    # 7-tuple per threshold: (name, val, thr, cur, op, sfx, baseline).
+    # baseline=None → keep DATA UNAVAILABLE behavior (yfinance tickers).
+    # baseline=number → fall back to baseline display when val is None
+    # (Perplexity intel). The probability engine still sees None upstream
+    # so the math is unchanged.
     thresholds = [
-        ("Brent > $130", prices["Brent"], 130, "$", "gt", ""),
-        ("Brent > $115", prices["Brent"], 115, "$", "gt", ""),
-        ("TTF > €80", prices["TTF"], 80, "€", "gt", ""),
-        ("TTF > €65", prices["TTF"], 65, "€", "gt", ""),
-        ("Gold > $4600", prices["Gold"], 4600, "$", "gt", ""),
-        ("Silver > $75", prices["Silver"], 75, "$", "gt", ""),
-        ("Urea > $800/t", urea_v, 800, "$", "gt", ""),
-        ("Urea > $600/t", urea_v, 600, "$", "gt", ""),
-        ("Hormuz < 30/day", hormuz_v, 30, "", "lt", ""),
-        ("Hormuz < 20/day", hormuz_v, 20, "", "lt", ""),
-        ("Panama slot > $2.5M", panama_v, 2_500_000, "$", "gt", ""),
-        ("Panama slot > $4.0M", panama_v, 4_000_000, "$", "gt", ""),
-        ("Helium > $2000/Mcf", helium_v, 2000, "$", "gt", ""),
-        ("Resins > 40% spike", resin_v, 40, "", "gt", "%"),
-        ("Jet Fuel > $1500/t", jet_v, 1500, "$", "gt", ""),
+        ("Brent > $130", prices["Brent"], 130, "$", "gt", "", None),
+        ("Brent > $115", prices["Brent"], 115, "$", "gt", "", None),
+        ("TTF > €80", prices["TTF"], 80, "€", "gt", "", None),
+        ("TTF > €65", prices["TTF"], 65, "€", "gt", "", None),
+        ("Gold > $4600", prices["Gold"], 4600, "$", "gt", "", None),
+        ("Silver > $75", prices["Silver"], 75, "$", "gt", "", None),
+        ("Urea > $800/t", urea_v, 800, "$", "gt", "",
+         INTEL_BASELINE["urea_spot_price_ton"]),
+        ("Urea > $600/t", urea_v, 600, "$", "gt", "",
+         INTEL_BASELINE["urea_spot_price_ton"]),
+        ("Hormuz < 30/day", hormuz_v, 30, "", "lt", "",
+         INTEL_BASELINE["hormuz_daily_transit_count"]),
+        ("Hormuz < 20/day", hormuz_v, 20, "", "lt", "",
+         INTEL_BASELINE["hormuz_daily_transit_count"]),
+        ("Panama slot > $2.5M", panama_v, 2_500_000, "$", "gt", "",
+         INTEL_BASELINE["panama_canal_neopanamax_price"]),
+        ("Panama slot > $4.0M", panama_v, 4_000_000, "$", "gt", "",
+         INTEL_BASELINE["panama_canal_neopanamax_price"]),
+        ("Helium > $2000/Mcf", helium_v, 2000, "$", "gt", "",
+         INTEL_BASELINE["helium_spot_price_mcf"]),
+        ("Resins > 40% spike", resin_v, 40, "", "gt", "%",
+         INTEL_BASELINE["asian_pe_pp_resin_spike"]),
+        ("Jet Fuel > $1500/t", jet_v, 1500, "$", "gt", "",
+         INTEL_BASELINE["jet_fuel_price_ton"]),
     ]
-    for name, val, thr, cur, op, sfx in thresholds:
-        if val is None:
+    for name, val, thr, cur, op, sfx, baseline_val in thresholds:
+        is_fallback = val is None and baseline_val is not None
+        display_val = baseline_val if is_fallback else val
+
+        if display_val is None:
             status = '<span style="color:#6b7280;">— DATA UNAVAILABLE</span>'
             live = "—"
         else:
-            breached = (op == "gt" and val > thr) or (op == "lt" and val < thr)
+            breached = (
+                (op == "gt" and display_val > thr)
+                or (op == "lt" and display_val < thr)
+            )
             if breached:
                 status = '<span style="color:#dc2626;">● BREACHED</span>'
             else:
                 status = '<span style="color:#10b981;">● NOMINAL</span>'
             if cur:
-                live = f"{cur}{val:,.0f}{sfx}"
+                live = f"{cur}{display_val:,.0f}{sfx}"
             else:
-                live = f"{val:,.1f}{sfx}" if sfx == "%" else f"{val:.0f}"
+                live = (
+                    f"{display_val:,.1f}{sfx}"
+                    if sfx == "%"
+                    else f"{display_val:.0f}"
+                )
+            if is_fallback:
+                live += ' <span class="baseline-tag">(baseline)</span>'
         st.markdown(
             f'<div class="prob-bar-container" style="display:flex;'
             f'justify-content:space-between;font-family:Courier New,monospace;'
@@ -1201,10 +1540,14 @@ with right:
             unsafe_allow_html=True,
         )
 
-    # Malacca qualitative threshold row
+    # Malacca qualitative threshold row — fall back to nominal baseline
+    # if Perplexity returned no severity flag.
     if malacca_sev is None:
-        m_status = '<span style="color:#6b7280;">— DATA UNAVAILABLE</span>'
-        m_live = "—"
+        m_status = '<span style="color:#10b981;">● NOMINAL</span>'
+        m_live = (
+            f'{MALACCA_BASELINE_SEVERITY} '
+            f'<span class="baseline-tag">(baseline)</span>'
+        )
     elif malacca_sev == "critical":
         m_status = '<span style="color:#dc2626;">● BREACHED (CRITICAL)</span>'
         m_live = "critical"
@@ -1224,10 +1567,14 @@ with right:
         unsafe_allow_html=True,
     )
 
-    # India rice ban qualitative threshold row
+    # India rice ban qualitative threshold row — fall back to INACTIVE
+    # baseline when Perplexity returned no usable flag.
     if rice_ban_v is None:
-        r_status = '<span style="color:#6b7280;">— DATA UNAVAILABLE</span>'
-        r_live = "—"
+        r_status = '<span style="color:#10b981;">● NOMINAL</span>'
+        r_live = (
+            f'{RICE_BAN_BASELINE} '
+            f'<span class="baseline-tag">(baseline)</span>'
+        )
     elif rice_ban_v == "ACTIVE":
         r_status = '<span style="color:#dc2626;">● BREACHED (ACTIVE)</span>'
         r_live = "ACTIVE"
@@ -1244,10 +1591,43 @@ with right:
         unsafe_allow_html=True,
     )
 
+    # ----- Equity Proxy Radar rows -----
+    # Show daily spike + tier glyph instead of raw dollar price.
+    # Severity tiers: |Δ| < 5% NOMINAL · >= 5% WARNING · >= 12% CRITICAL.
+    for ticker_key in EQUITY_TICKERS:
+        meta = EQUITY_PROXY_META[ticker_key]
+        change = equity_changes.get(ticker_key)
+        sev = equity_severity(change)
+
+        if change is None:
+            eq_live = "—"
+            eq_status = (
+                '<span style="color:#6b7280;">— DATA UNAVAILABLE</span>'
+            )
+        else:
+            eq_live = f"{'+' if change >= 0 else ''}{change:.2f}% spike"
+            color = EQUITY_TIER_COLORS.get(sev, "#9ca3af")
+            glyph = EQUITY_TIER_GLYPH.get(sev, "●")
+            tier = (sev or "nominal").upper()
+            eq_status = (
+                f'<span style="color: {color};">{glyph} {tier}</span>'
+            )
+
+        row_label = f"{ticker_key} ({meta['proxy_for']})"
+        st.markdown(
+            f'<div class="prob-bar-container" style="display:flex;'
+            f'justify-content:space-between;font-family:Courier New,monospace;'
+            f'font-size:0.8rem;">'
+            f'<span style="color:#9ca3af;">{html.escape(row_label)}</span>'
+            f'<span style="color:#9ca3af;">live: {eq_live}</span>'
+            f'<span>{eq_status}</span></div>',
+            unsafe_allow_html=True,
+        )
+
 st.markdown("&nbsp;", unsafe_allow_html=True)
 
 # ---------- PLAYBOOK ----------
-actions = evaluate_playbook(prices, intel_data)
+actions = evaluate_playbook(prices, intel_data, equity_changes)
 header = f"⚠  Triggered Playbook Actions  ({len(actions)} active)"
 with st.expander(header, expanded=len(actions) > 0):
     if not actions:
