@@ -1,3 +1,4 @@
+import concurrent.futures
 import html
 import json
 import re
@@ -1509,6 +1510,159 @@ PERPLEXITY_USER_PROMPT = (
 )
 
 
+# ============================================================
+# v16 (Fix 1) — INTEL_METRICS fan-out config
+# ============================================================
+# The v15.x single-call ten-field prompt was too broad — sonar-pro
+# couldn't reliably source ten heterogeneous metrics in one shot for
+# a specific date and most fields came back null. This config drives
+# a per-metric fan-out: each metric becomes its own narrow neutral
+# Perplexity question with a tight expected-type contract and a
+# named primary-source list. Calls run in parallel via a
+# ThreadPoolExecutor so wall time stays comparable to the old
+# single call. Each metric is cached independently so a single
+# failing metric does not poison the whole feed.
+#
+# The dict shape mirrors the v15.x output keys exactly so downstream
+# rendering, the editorial-override layer, and the engine all keep
+# working without changes.
+INTEL_METRICS = {
+    "panama_canal_neopanamax_price": {
+        "question":
+            "What is the current Panama Canal Neopanamax slot "
+            "auction average price in US dollars?",
+        "expected_type": "number",
+        "unit_hint": "USD per slot",
+        "primary_sources": [
+            "Panama Canal Authority (pancanal.com)",
+            "Reuters Maritime",
+            "Lloyd's List Intelligence",
+        ],
+    },
+    "urea_spot_price_ton": {
+        "question":
+            "What is the current global urea spot price in US "
+            "dollars per metric tonne?",
+        "expected_type": "number",
+        "unit_hint": "USD per metric tonne",
+        "primary_sources": [
+            "Argus", "S&P Global Platts", "ICIS",
+            "CME urea futures", "Reuters Commodities",
+        ],
+    },
+    "hormuz_daily_transit_count": {
+        "question":
+            "What is the current Strait of Hormuz daily ship "
+            "transit count? Provide a primary citation.",
+        "expected_type": "number",
+        "unit_hint": "ships per day",
+        "primary_sources": [
+            "Lloyd's List Intelligence",
+            "Kpler", "Bloomberg shipping desk", "Reuters Maritime",
+        ],
+    },
+    "malacca_status": {
+        "question":
+            "What is the current Strait of Malacca maritime traffic "
+            "status? Summarise any congestion, vessel backlog, or "
+            "breaking incidents in one sentence.",
+        "expected_type": "string",
+        "unit_hint": None,
+        "primary_sources": [
+            "Reuters Maritime", "Lloyd's List Intelligence",
+            "Kpler", "MarineTraffic",
+        ],
+    },
+    "malacca_severity": {
+        "question":
+            "What is the current Strait of Malacca traffic severity? "
+            "Output exactly one of: \"nominal\", \"elevated\", or "
+            "\"critical\". Use \"critical\" only when transit is "
+            "actively disrupted by a confirmed closure, channel "
+            "obstruction, or security incident reported in the last "
+            "7 days.",
+        "expected_type": "enum",
+        "enum_values": ["nominal", "elevated", "critical"],
+        "primary_sources": [
+            "Reuters Maritime", "Lloyd's List Intelligence", "Kpler",
+        ],
+    },
+    "malacca_ships_waiting": {
+        "question":
+            "What is the current number of ships waiting or queued "
+            "at the Strait of Malacca anchorage? Peace-time baseline "
+            "is approximately 80 vessels.",
+        "expected_type": "number",
+        "unit_hint": "ships waiting",
+        "primary_sources": [
+            "MarineTraffic", "Kpler", "Reuters Maritime",
+        ],
+    },
+    "helium_spot_price_mcf": {
+        "question":
+            "What is the current global helium spot price in US "
+            "dollars per Mcf (thousand cubic feet)?",
+        "expected_type": "number",
+        "unit_hint": "USD per Mcf",
+        "primary_sources": [
+            "gasworld", "Linde / Air Products / Air Liquide investor disclosures",
+            "specialty gas trade press",
+        ],
+    },
+    "asian_pe_pp_resin_spike": {
+        "question":
+            "What is the current estimated price spike percentage "
+            "for Asian PE/PP base resins versus the stable "
+            "2024-2025 baseline? Return a percent number "
+            "(e.g. 25 means 25%).",
+        "expected_type": "percent",
+        "unit_hint": "percent above 2024-2025 baseline",
+        "primary_sources": [
+            "ICIS", "S&P Global Platts", "Argus", "Reuters Commodities",
+        ],
+    },
+    "jet_fuel_price_ton": {
+        "question":
+            "What is the current global average jet fuel (kerosene) "
+            "price in US dollars per metric tonne?",
+        "expected_type": "number",
+        "unit_hint": "USD per metric tonne",
+        "primary_sources": [
+            "IATA fuel monitor", "S&P Global Platts",
+            "Argus", "Reuters Commodities",
+        ],
+    },
+    "india_rice_ban_status": {
+        "question":
+            "Is an Indian government rice export ban currently in "
+            "force? Output exactly \"ACTIVE\" or \"INACTIVE\". "
+            "ACTIVE means a ban on any rice category (non-basmati "
+            "white, broken, or parboiled) is currently in force.",
+        "expected_type": "enum",
+        "enum_values": ["ACTIVE", "INACTIVE"],
+        "primary_sources": [
+            "DGFT (apeda.gov.in/dgft-notifications)",
+            "Reuters India",
+            "Bloomberg",
+        ],
+    },
+}
+
+
+# v16 (Fix 1) — terse system prompt. Each per-metric call uses the
+# same short system instruction; the user prompt carries the metric-
+# specific question + primary-source hints + return-shape contract.
+PERPLEXITY_PER_METRIC_SYSTEM_PROMPT = (
+    "You are a neutral primary-source research assistant. "
+    "Answer the user's single-metric question with strict honesty: "
+    "if you cannot find a primary citation from the last 7 days, "
+    "return null. Do not guess, infer, or extrapolate. "
+    "Return ONLY a single raw JSON object on one line: "
+    '{"value": ...}. '
+    "No prose, no markdown fences, no citations, no commentary."
+)
+
+
 @st.cache_data(ttl=14400)
 def fetch_price(ticker: str) -> float | None:
     """
@@ -2385,6 +2539,24 @@ def _normalize_ban_status(value):
     return None
 
 
+def _normalize_enum(value, allowed):
+    """v16 (Fix 1) — generic case-insensitive enum match used by the
+    per-metric fan-out fetcher. Returns the canonical value from
+    `allowed` or None when the input does not match.
+
+    Supersedes the metric-specific _normalize_severity /
+    _normalize_ban_status helpers but does not replace them — the
+    legacy helpers stay so the v15.x single-call code path keeps
+    working until Fix 6 (code hygiene) retires it."""
+    if not isinstance(value, str) or not allowed:
+        return None
+    cleaned = value.strip()
+    for candidate in allowed:
+        if candidate.lower() == cleaned.lower():
+            return candidate
+    return None
+
+
 def _extract_json_object(raw: str) -> dict | None:
     if not raw:
         return None
@@ -2484,6 +2656,267 @@ def fetch_perplexity_intel(api_key: str) -> dict:
     result["data"] = cleaned
     result["fetched_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     return result
+
+
+# ============================================================
+# v16 (Fix 1) — per-metric fan-out fetcher
+# ============================================================
+
+def _build_per_metric_user_prompt(metric_key: str, spec: dict) -> str:
+    """Compose the narrow neutral user prompt for a single metric.
+
+    Pattern: <neutral question> · <primary-source list> · <fallback
+    rule> · <return-shape contract>. No leading framing, no
+    deck-anchoring language, no narrative."""
+    sources_str = ", ".join(spec.get("primary_sources", []))
+    expected = spec.get("expected_type", "string")
+    enum_values = spec.get("enum_values", [])
+
+    if expected == "number":
+        contract = (
+            'Return ONLY a JSON object {"value": <number>} or '
+            '{"value": null} if you cannot source a primary '
+            'reference from the last 7 days. Plain number, no '
+            'currency symbol, no commas, no units inside the value. '
+            'No prose, no markdown, no citations.'
+        )
+    elif expected == "percent":
+        contract = (
+            'Return ONLY a JSON object {"value": <number>} where the '
+            'number is the percent (e.g. 25 means 25%) — or '
+            '{"value": null} if you cannot source a primary '
+            'reference from the last 7 days. No prose, no markdown, '
+            'no citations.'
+        )
+    elif expected == "enum":
+        valid = ", ".join(f'"{v}"' for v in enum_values)
+        contract = (
+            f'Return ONLY a JSON object {{"value": <one of {valid}>}} '
+            f'or {{"value": null}} if you cannot determine from '
+            f'primary sources. No prose, no markdown, no citations.'
+        )
+    else:  # string
+        contract = (
+            'Return ONLY a JSON object {"value": <string up to 200 '
+            'chars>} or {"value": null} if you cannot source a '
+            'primary reference from the last 7 days. No prose, no '
+            'markdown, no citations.'
+        )
+
+    return (
+        f'{spec["question"]} '
+        f'Use primary references only: {sources_str}. '
+        f'If no primary source within the last 7 days, return null. '
+        f'Do not infer, extrapolate, or guess. {contract}'
+    )
+
+
+@st.cache_data(ttl=14400, show_spinner=False)
+def fetch_intel_metric(metric_key: str, api_key: str) -> dict:
+    """v16 (Fix 1) — single-metric narrow Perplexity call.
+
+    Each metric is cached independently on the same 4-hour TTL so a
+    single failing call never poisons the rest of the feed. Returns:
+
+        {
+            "value":        <coerced value or None>,
+            "fetched_at":   ISO timestamp or None,
+            "error":        None or short error string,
+            "source_hint":  primary-source list (rendered to user),
+            "raw":          raw LLM content (for the debug expander),
+        }
+
+    Caching is keyed on (metric_key, api_key). Both args are simple
+    strings so the @st.cache_data wrapper hashes them cleanly."""
+    spec = INTEL_METRICS.get(metric_key)
+    sources_hint = (
+        ", ".join(spec["primary_sources"])
+        if spec and spec.get("primary_sources")
+        else None
+    )
+    base = {
+        "value": None,
+        "fetched_at": None,
+        "error": None,
+        "source_hint": sources_hint,
+        "raw": None,
+    }
+
+    if spec is None:
+        base["error"] = f"unknown metric: {metric_key}"
+        return base
+    if not api_key:
+        base["error"] = "no api key"
+        return base
+
+    user_prompt = _build_per_metric_user_prompt(metric_key, spec)
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": PERPLEXITY_MODEL,
+        "messages": [
+            {"role": "system",
+             "content": PERPLEXITY_PER_METRIC_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.0,
+    }
+
+    try:
+        response = requests.post(
+            PERPLEXITY_ENDPOINT,
+            headers=headers,
+            json=payload,
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        base["error"] = f"network: {exc}"
+        return base
+
+    if response.status_code != 200:
+        base["error"] = (
+            f"http {response.status_code}: {response.text[:160]}"
+        )
+        return base
+
+    try:
+        body = response.json()
+        content = body["choices"][0]["message"]["content"]
+    except (ValueError, KeyError, IndexError) as exc:
+        base["error"] = f"malformed response: {exc}"
+        return base
+
+    base["raw"] = content
+    parsed = _extract_json_object(content)
+    if parsed is None:
+        base["error"] = "json parse failed"
+        return base
+
+    raw_value = parsed.get("value")
+    expected = spec.get("expected_type", "string")
+
+    if expected in ("number", "percent"):
+        cleaned = _positive_or_none(_coerce_number(raw_value))
+    elif expected == "enum":
+        cleaned = _normalize_enum(raw_value, spec.get("enum_values", []))
+    else:  # string
+        cleaned = _normalize_status(raw_value) if raw_value else None
+
+    base["value"] = cleaned
+    base["fetched_at"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    if cleaned is None:
+        # Successful call, just no usable value — flag distinctly so
+        # the freshness UI can tell "null answer" apart from "no
+        # call made".
+        base["error"] = "value was null"
+    return base
+
+
+def fetch_all_intel(api_key: str) -> dict:
+    """v16 (Fix 1) — orchestrate the per-metric fan-out.
+
+    Each metric in INTEL_METRICS is dispatched in parallel via a
+    ThreadPoolExecutor (max_workers=10). Cache hits short-circuit
+    inside `fetch_intel_metric` so warm reruns are essentially free.
+
+    Returns:
+        {
+            "data":        {metric_key: cleaned_value or None},
+            "metric_meta": {metric_key: per-call meta dict},
+            "fetched_at":  ISO timestamp of this orchestration run,
+        }
+
+    The `data` dict mirrors the v15.x output shape exactly so the
+    rest of the dashboard (engine, render, editorial overrides)
+    keeps working unchanged."""
+    fetched_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if not api_key:
+        empty_meta = {
+            k: {
+                "value": None,
+                "fetched_at": None,
+                "error": "no api key",
+                "source_hint": ", ".join(
+                    INTEL_METRICS[k].get("primary_sources", [])
+                ),
+                "raw": None,
+            }
+            for k in INTEL_METRICS
+        }
+        return {
+            "data": {k: None for k in INTEL_METRICS},
+            "metric_meta": empty_meta,
+            "fetched_at": fetched_at,
+        }
+
+    results = {}
+    max_workers = min(10, len(INTEL_METRICS)) or 1
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=max_workers,
+        thread_name_prefix="intel_fanout",
+    ) as ex:
+        futures = {
+            ex.submit(fetch_intel_metric, key, api_key): key
+            for key in INTEL_METRICS
+        }
+        for fut in concurrent.futures.as_completed(futures):
+            key = futures[fut]
+            try:
+                results[key] = fut.result()
+            except Exception as exc:
+                results[key] = {
+                    "value": None,
+                    "fetched_at": None,
+                    "error": f"future raised: {exc}",
+                    "source_hint": ", ".join(
+                        INTEL_METRICS[key].get("primary_sources", [])
+                    ),
+                    "raw": None,
+                }
+
+    data = {key: results[key]["value"] for key in INTEL_METRICS}
+    return {
+        "data": data,
+        "metric_meta": results,
+        "fetched_at": fetched_at,
+    }
+
+
+# ============================================================
+# v16 (Fix 1) — Real-feed adapters
+# ============================================================
+# For metrics with deterministic public sources, prefer the real
+# feed over Perplexity entirely. Each adapter returns a (value, tag)
+# pair where `tag` describes the source — surfaced in the metric
+# meta so the user can see whether a value came from a live tape, a
+# derived calculation, or an LLM retrieval.
+
+@st.cache_data(ttl=14400)
+def fetch_urea_yfinance() -> float | None:
+    """CME urea futures (UFV=F). Returns None if the ticker is not
+    accessible — caller falls back to Perplexity."""
+    try:
+        data = yf.Ticker("UFV=F").history(period="5d", interval="1d")
+        if data.empty:
+            return None
+        return float(data["Close"].iloc[-1])
+    except Exception:
+        return None
+
+
+def fetch_jet_fuel_derived(brent_v):
+    """Derived from Brent crude. Jet (kerosene) typically trades at
+    ~1.18x Brent on a $/bbl basis; convert to $/tonne via ~7.5
+    barrels per tonne. Returns (value, tag) so the caller can stamp
+    the metric meta with `derived from Brent`. None when Brent
+    itself is unavailable."""
+    if brent_v is None:
+        return None, "unavailable"
+    derived = float(brent_v) * 1.18 * 7.5
+    return derived, "derived from Brent (~1.18× crude × 7.5 bbl/t)"
 
 
 def adjust_probabilities(prices: dict, intel: dict | None = None,
@@ -3367,17 +3800,76 @@ for _name, _tk in TICKERS.items():
 for _key, _tk in EQUITY_TICKERS.items():
     sparkline_series[_key] = fetch_sparkline_series(_tk)
 
-intel_data = {}
-intel_meta = {"fetched_at": None, "error": None, "raw": None}
-if api_key:
-    with st.spinner("Querying Perplexity sonar-pro for logistics intel..."):
-        intel_result = fetch_perplexity_intel(api_key)
-    intel_meta["fetched_at"] = intel_result.get("fetched_at")
-    intel_meta["error"] = intel_result.get("error")
-    intel_meta["raw"] = intel_result.get("raw")
-    intel_data = intel_result.get("data") or {}
-else:
-    intel_meta["error"] = "Perplexity intel paused — no API key."
+# v16 (Fix 1) — fan-out parallel intel fetch. Replaces the v15.x
+# single-call ten-field prompt with one narrow neutral Perplexity
+# call per metric, dispatched concurrently. Each metric is cached
+# independently so a single failing metric does not poison the
+# whole feed. Real-feed adapters (yfinance UFV=F for urea,
+# Brent-derived jet fuel) overlay the LLM result where a public
+# deterministic source is available.
+with st.spinner(
+    "Querying primary intelligence sources (parallel fan-out)..."
+):
+    intel_result = fetch_all_intel(api_key)
+
+intel_data = dict(intel_result.get("data") or {})
+intel_meta = {
+    "fetched_at": intel_result.get("fetched_at"),
+    "metric_meta": intel_result.get("metric_meta") or {},
+    # `raw` keeps the same key so the existing debug expander wires
+    # do not break. Render the structured per-metric payload
+    # (value + source_hint + error) as pretty JSON so the operator
+    # can audit exactly what each call returned.
+    "raw": json.dumps(
+        {
+            k: {
+                "value": m.get("value"),
+                "fetched_at": m.get("fetched_at"),
+                "error": m.get("error"),
+                "source_hint": m.get("source_hint"),
+            }
+            for k, m in (intel_result.get("metric_meta") or {}).items()
+        },
+        indent=2,
+        default=str,
+    ),
+    "error": (
+        None if api_key else "Perplexity intel paused — no API key."
+    ),
+}
+
+# Real-feed adapter overlays — preferred over LLM retrieval where
+# a public deterministic source exists. We only overlay when the
+# adapter returns a real number; if the adapter fails, the LLM
+# value (which may itself be None) stays.
+_urea_live = fetch_urea_yfinance()
+if _urea_live is not None:
+    intel_data["urea_spot_price_ton"] = _urea_live
+    intel_meta["metric_meta"]["urea_spot_price_ton"] = {
+        "value": _urea_live,
+        "fetched_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "error": None,
+        "source_hint": "yfinance UFV=F (CME urea futures)",
+        "raw": None,
+    }
+
+_brent_for_jet = prices.get("Brent")
+_jet_derived, _jet_tag = fetch_jet_fuel_derived(_brent_for_jet)
+if (
+    _jet_derived is not None
+    and intel_data.get("jet_fuel_price_ton") is None
+):
+    # Only overlay when Perplexity could not source jet fuel; a
+    # real LLM-sourced value (when it exists) wins over the
+    # derived approximation.
+    intel_data["jet_fuel_price_ton"] = _jet_derived
+    intel_meta["metric_meta"]["jet_fuel_price_ton"] = {
+        "value": _jet_derived,
+        "fetched_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "error": None,
+        "source_hint": _jet_tag,
+        "raw": None,
+    }
 
 # ---------- v15.4 STATUS OVERRIDES (Verified Primary Source Data) ----------
 # v15.4 reframes the dashboard around primary-source accuracy. The
@@ -4707,9 +5199,25 @@ with st.expander(header, expanded=len(actions) > 0):
             )
 
 # ---------- DEBUG / RAW INTEL ----------
+# v16 (Fix 1) — the raw expander now shows the structured per-metric
+# fan-out result so the user can audit, for each metric, whether
+# Perplexity returned a usable value, what primary-source hints
+# were sent in the prompt, and which call (if any) failed. The
+# payload is the smoke test for the rest of the truthfulness work.
 if api_key and intel_meta.get("raw"):
-    with st.expander("Raw Perplexity payload", expanded=False):
+    with st.expander(
+        "Raw intel payload (per-metric fan-out)", expanded=False
+    ):
         st.code(intel_meta["raw"], language="json")
+        _meta = intel_meta.get("metric_meta") or {}
+        if _meta:
+            _live_count = sum(
+                1 for m in _meta.values() if m.get("value") is not None
+            )
+            st.caption(
+                f"Fan-out: {_live_count}/{len(_meta)} metrics returned "
+                f"a non-null value. Cache TTL is 4 hours per metric."
+            )
 
 st.markdown("&nbsp;", unsafe_allow_html=True)
 st.markdown(
