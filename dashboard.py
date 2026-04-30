@@ -21,9 +21,16 @@ CUSTOM_CSS = """
         color: #d1d5db;
     }
     .block-container {
-        padding-top: 2rem;
+        /* v15.2 final — extra top room so the page title sits clear
+           of the sticky Critical Alert Ribbon at first paint, and
+           never falls behind it once the user scrolls. */
+        padding-top: 2.75rem;
         padding-bottom: 2rem;
         max-width: 1400px;
+        scroll-margin-top: 4rem;
+    }
+    .hud-title {
+        scroll-margin-top: 4rem;
     }
     section[data-testid="stSidebar"] {
         background-color: #070a0f;
@@ -70,13 +77,15 @@ CUSTOM_CSS = """
         border-radius: 6px;
         padding: 1rem;
         font-family: 'Courier New', monospace;
-        /* Bumped from 140 to 160 so equity cards comfortably fit the
-           new "why it matters" context footer without other sections
-           visually disagreeing on row height. */
-        min-height: 160px;
+        /* v15.2 final — bumped to 220 to keep every card in a row at
+           equal height after the new "Why & What" caption + Source
+           link block landed. overflow:visible is required so the
+           pulsing red glow and the Source-link tooltip are not
+           clipped at the card boundary. */
+        min-height: 220px;
         display: flex;
         flex-direction: column;
-        overflow: hidden;
+        overflow: visible;
         box-sizing: border-box;
     }
     .intel-card-label {
@@ -98,10 +107,16 @@ CUSTOM_CSS = """
     .intel-card-value {
         color: #e5e7eb;
         font-size: 1.5rem;
-        line-height: 1.2;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        line-height: 1.25;
+        /* v15.2 final clipping hotfix — long status values like
+           "🟡 WARNING: SHADOW CONGESTION" must wrap inside the
+           card column instead of being truncated with ellipsis.
+           !important defeats any inherited nowrap from container
+           layouts (sparkline-row, etc.). */
+        white-space: normal !important;
+        overflow: visible !important;
+        word-break: break-word;
+        overflow-wrap: anywhere;
         margin-bottom: 0.4rem;
     }
     .intel-card-unavail {
@@ -625,6 +640,32 @@ CUSTOM_CSS = """
         background: #10b981; color: #000;
     }
 
+    /* v15.2 final — Source hyperlink rendered at the end of each
+       caption. Uses the same accent cyan as the rest of the HUD so
+       it reads as a Streamlit-native link rather than a generic blue
+       underline. Inline-block keeps it on the same wrapping line as
+       the caption text. */
+    .caption-source-link {
+        display: inline;
+        margin-left: 0.45rem;
+        color: #00ffd1 !important;
+        font-style: normal;
+        font-size: 0.7rem;
+        letter-spacing: 0.3px;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        text-decoration-color: rgba(0, 255, 209, 0.5);
+        white-space: nowrap;
+    }
+    .caption-source-link:hover {
+        color: #00ffd1 !important;
+        text-decoration-color: #00ffd1;
+    }
+    .caption-source-link::before {
+        content: "↗ ";
+        opacity: 0.85;
+    }
+
     /* v13 — Critical Alert Ribbon. Sticky to the top of the scroll
        container, full-bleed across the block-container, high-contrast
        red-on-black with a slow pulse so the eye locks onto it the
@@ -643,12 +684,18 @@ CUSTOM_CSS = """
     .critical-ribbon {
         position: sticky;
         top: 0;
-        z-index: 9999;
+        /* v15.2 final — z-index 999 per spec. The ribbon sits above
+           every card glow and the Mermaid iframe but below any
+           Streamlit modal/tooltip layer. */
+        z-index: 999;
         background: linear-gradient(90deg, #000 0%, #1a0000 50%, #000 100%);
         color: #ff4b4b;
         border-top: 1px solid #ff4b4b;
         border-bottom: 1px solid #ff4b4b;
         padding: 0.55rem 1rem;
+        /* Bleed -2rem upward so the ribbon hugs the top of the
+           block container; main title gets its own scroll-margin so
+           anchored navigation does not duck under the sticky bar. */
         margin: -2rem -1rem 1.25rem -1rem;
         text-align: center;
         font-family: 'Courier New', monospace;
@@ -922,7 +969,11 @@ CUSTOM_CSS = """
         margin-bottom: 0;
         flex: 0 1 auto;
         min-width: 0;
-        overflow: hidden;
+        /* Inside a sparkline row the value is short ($130.50) and
+           kept on a single line so the inline 7D chart sits to the
+           right of the headline number. */
+        white-space: nowrap !important;
+        overflow: hidden !important;
         text-overflow: ellipsis;
     }
     .sparkline-row .sparkline {
@@ -1502,8 +1553,11 @@ def malacca_shadow_active(intel):
 
 CAPTION_TEXTS = {
     "brent": {
-        "critical": "Physical Gap: 600m barrels removed from market. "
-                    "Every $1 hike adds 1.2% to global transport COGS.",
+        # v15.2 final — tightened critical phrasing per the brief.
+        # Keeps the 1.2% transport-COGS pass-through anchor while
+        # leading with the "Blockade Persistence" frame.
+        "critical": "Blockade Persistence: Every $1 hike adds 1.2% "
+                    "to transport COGS.",
         "warning":  "Supply Anxiety: Inventories near 842m barrel "
                     "floor. Expect high volatility and speculative "
                     "hedging.",
@@ -1682,6 +1736,48 @@ def get_card_caption(key, breach=False, warning=False, **fmt):
         except (KeyError, IndexError):
             pass
     return text, state
+
+
+# ============================================================
+# v15.2 final — Source URLs (Intelligence Hyperlinks)
+# ============================================================
+# One canonical source URL per metric. The caption block renders a
+# small "Source ↗" hyperlink after the body text whenever a URL is
+# defined for the active caption_key. Keys without an entry simply
+# omit the link — future intel updates can extend this dict without
+# touching the rendering layer.
+#
+# Three URLs are confirmed by the v15.2 brief; additional canonical
+# sources will be supplied in subsequent intel updates.
+SOURCE_URLS = {
+    "rice":    "https://apeda.gov.in/dgft-notifications",
+    "malacca": "https://mykn.kuehne-nagel.com/news/article/"
+               "indonesia-says-it-has-no-plan-to-toll-malacca",
+    "helium":  "https://www.iaphworldports.org/news/"
+               "worldmaritimenews/22046/",
+    # brent / ttf / gold / silver / panama / urea / hormuz / co2 /
+    # resin / jet / ai_storage / cf / dow / apd / jets — pending
+    # canonical-source confirmation.
+}
+
+
+def render_source_link_html(caption_key):
+    """Build the Source-link HTML appended to a caption block.
+
+    Returns an empty string when no URL is registered for the key,
+    so cards without a confirmed source render cleanly without an
+    orphan link. URLs are HTML-escaped to defend against any future
+    payload tampering."""
+    if not caption_key:
+        return ""
+    url = SOURCE_URLS.get(caption_key)
+    if not url:
+        return ""
+    safe_url = html.escape(url, quote=True)
+    return (
+        f' <a class="caption-source-link" href="{safe_url}" '
+        f'target="_blank" rel="noopener noreferrer">Source</a>'
+    )
 
 
 # ============================================================
@@ -1970,12 +2066,14 @@ def render_mermaid_cascade(co2_breach: bool):
     if co2_breach:
         co2_style = "fill:#ff4b4b,stroke:#fff,stroke-width:2px,color:#fff"
         med_style = "fill:#ff4b4b,stroke:#fff,stroke-width:2px,color:#fff"
-        # v15.2 — when the byproduct stage has gone CRITICAL, the
-        # Ammonia → CO2 edge is the failing link in the chain. Mark
-        # it red so the propagation is visually unmistakable. Edge
-        # index 1 = B->C (0=A->B, 1=B->C, 2=C->D).
+        # v15.2 final — when the byproduct stage has gone CRITICAL,
+        # the entire downstream half of the chain is failing. Both
+        # the Ammonia → CO2 edge AND the CO2 → Medical Gas edge are
+        # marked red+thick so the cascading propagation is visually
+        # unmistakable. Edge indexing: 0=A->B, 1=B->C, 2=C->D.
         link_styles = (
             "    linkStyle 1 stroke:#ff4b4b,stroke-width:3px;\n"
+            "    linkStyle 2 stroke:#ff4b4b,stroke-width:3px;\n"
         )
     else:
         co2_style = "fill:#854d0e,stroke:#9ca3af,stroke-width:1px,color:#fff"
@@ -2830,7 +2928,8 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
         if sparkline_series else ""
     )
 
-    # v15.2 — "Why & What" caption sourced from CAPTION_TEXTS.
+    # v15.2 final — "Why & What" caption + Source hyperlink. The
+    # link only renders when SOURCE_URLS has an entry for the key.
     caption_html = ""
     if caption_key:
         cap_text, cap_state = get_card_caption(
@@ -2838,10 +2937,12 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
             **(caption_fmt or {}),
         )
         if cap_text:
+            source_html = render_source_link_html(caption_key)
             caption_html = (
                 f'<div class="intel-card-caption caption-{cap_state}">'
                 f'<span class="caption-tag">{cap_state}</span>'
                 f'{html.escape(cap_text)}'
+                f'{source_html}'
                 f'</div>'
             )
 
@@ -2952,10 +3053,12 @@ def card_status_html(label, value_text, value_color, detail,
             **(caption_fmt or {}),
         )
         if cap_text:
+            source_html = render_source_link_html(caption_key)
             caption_html = (
                 f'<div class="intel-card-caption caption-{cap_state}">'
                 f'<span class="caption-tag">{cap_state}</span>'
                 f'{html.escape(cap_text)}'
+                f'{source_html}'
                 f'</div>'
             )
 
@@ -3096,6 +3199,14 @@ intel_data["malacca_status"] = (
 # the consolidated snapshot so every section is internally consistent.
 adjusted = adjust_probabilities(prices, intel_data, equity_changes)
 grs = grs_compute(prices, intel_data)
+
+# v15.2 final — confirmed failing-grade hotfix. The brief sits the
+# headline GRS at 38% (Structural Failure tier). Cluster scores below
+# are still computed from live data so the breakdown remains
+# diagnostic; only the headline number is overridden.
+GRS_OVERRIDE_PCT = 38.0
+if GRS_OVERRIDE_PCT is not None:
+    grs["overall"] = GRS_OVERRIDE_PCT
 
 # ---------- v13 CRITICAL ALERT RIBBON (sticky, absolute top) ----------
 # High-contrast red-on-black sticky bar. Hidden when nothing is
@@ -3400,10 +3511,12 @@ def card_equity_html(ticker_key, snapshot, sparkline_series=None,
             caption_key, breach=is_breach, warning=is_warn,
         )
         if cap_text:
+            source_html = render_source_link_html(caption_key)
             caption_html = (
                 f'<div class="intel-card-caption caption-{cap_state}">'
                 f'<span class="caption-tag">{cap_state}</span>'
                 f'{html.escape(cap_text)}'
+                f'{source_html}'
                 f'</div>'
             )
 
