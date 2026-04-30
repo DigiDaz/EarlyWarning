@@ -1467,6 +1467,10 @@ INTEL_BASELINE = {
     # (= $900–1050/tonne); $1,000 is the clean baseline.
     "asian_pp_spot_price_ton": 1000.0,
     "jet_fuel_price_ton": 850.0,
+    # v18 Fix 3 — EU gas storage fill % (AGSI+). Peak storage runs
+    # ~95% in October before winter draw; Q2 is the rebuild window
+    # so 80%+ is a healthy baseline target heading into next winter.
+    "eu_gas_storage_pct": 80.0,
 }
 
 # Qualitative peace-time defaults (no numeric baseline applies).
@@ -1659,15 +1663,26 @@ PERPLEXITY_USER_PROMPT = (
 # working without changes.
 INTEL_METRICS = {
     "panama_canal_neopanamax_price": {
+        # v18 Fix 1a — wider 30-day window. ACP reports auction
+        # averages in batches every few weeks, not daily; a 7-day
+        # window guaranteed null on most days. Trade press
+        # (Maritime Executive, Seatrade, gCaptain) re-publishes the
+        # ACP figures so they're a valid secondary source.
         "question":
-            "What is the current Panama Canal Neopanamax slot "
-            "auction average price in US dollars?",
+            "What is the most recent Panama Canal Authority "
+            "(ACP) reported average auction slot price for "
+            "Neopanamax vessels in US dollars? Use the latest "
+            "publicly reported figure from the last 30 days. "
+            "Provide a primary citation.",
         "expected_type": "number",
         "unit_hint": "USD per slot",
         "primary_sources": [
-            "Panama Canal Authority (pancanal.com)",
+            "Panama Canal Authority press releases (pancanal.com)",
             "Reuters Maritime",
-            "Lloyd's List Intelligence",
+            "Maritime Executive",
+            "Seatrade Maritime",
+            "gCaptain",
+            "Argus",
         ],
     },
     "urea_spot_price_ton": {
@@ -1784,6 +1799,23 @@ INTEL_METRICS = {
             "Bloomberg",
         ],
     },
+    # v18 Fix 3 — EU gas storage fill level. Highest-quality
+    # directly-observable buffer indicator; AGSI+ (Gas
+    # Infrastructure Europe) publishes this daily.
+    "eu_gas_storage_pct": {
+        "question":
+            "What is the current EU gas storage fill level as a "
+            "percentage of capacity? Use the most recent AGSI+ "
+            "(Gas Infrastructure Europe) daily report.",
+        "expected_type": "percent",
+        "unit_hint": "percent of capacity",
+        "primary_sources": [
+            "AGSI+ (agsi.gie.eu)",
+            "Gas Infrastructure Europe",
+            "Reuters Commodities",
+            "Bloomberg",
+        ],
+    },
 }
 
 
@@ -1801,13 +1833,13 @@ PERPLEXITY_PER_METRIC_SYSTEM_PROMPT = (
 )
 
 
-# Fix 2a — module-level cache-miss timestamp tracker. Every cached
-# fetch function records the time it actually hit the network into
-# this dict (keyed by (kind, ticker)). Cache hits skip the function
-# body so the timestamp stays at the previous miss — which is
-# exactly what we want: "when was this value actually pulled".
-# Cleared on script reload, so it stays in sync with the cache.
-_FETCH_TIMESTAMPS = {}
+# v18 Fix 2 — cache the fetch timestamp ALONGSIDE the value so it
+# survives across reruns. The previous module-level _FETCH_TIMESTAMPS
+# dict was reset every script run; cache hits never re-recorded so
+# every yfinance card showed "LAST PULL: unknown". Returning the
+# timestamp as part of the cached payload means the cache stores it
+# too, and on a cache hit we get the original fetch time back.
+_FETCH_TIMESTAMPS = {}  # legacy; kept for sparkline-only paths
 
 
 def _record_fetch(kind, ticker):
@@ -1817,24 +1849,20 @@ def _record_fetch(kind, ticker):
 
 
 @st.cache_data(ttl=14400)
-def fetch_price(ticker: str) -> float | None:
-    """
-    Pull raw close price directly from yfinance. No multipliers, no
-    transforms, no synthetic data — whatever Yahoo returns is what
-    the dashboard displays.
-
-    Cached for 4h (14400s) so the dashboard refreshes in step with
-    major market sessions (Asia → Europe → US) instead of locking
-    everyone to a single daily snapshot.
-    """
-    _record_fetch("yfinance_price", ticker)
+def fetch_price(ticker: str):
+    """v18 Fix 2 — return (value, fetched_at_iso). Tuple is cached
+    so the timestamp persists across reruns. value is None when
+    yfinance returned no data."""
     try:
         data = yf.Ticker(ticker).history(period="2d", interval="1d")
         if data.empty:
-            return None
-        return float(data["Close"].iloc[-1])
+            return None, None
+        return (
+            float(data["Close"].iloc[-1]),
+            datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
     except Exception:
-        return None
+        return None, None
 
 
 @st.cache_data(ttl=14400)
@@ -1842,7 +1870,8 @@ def fetch_sparkline_series(ticker: str) -> list:
     """v13 — return last 7 trading-day Close values for sparkline
     rendering. Cached on the same 4-hour window as fetch_price /
     fetch_equity_snapshot so the trend is consistent with the headline
-    number on every card."""
+    number on every card. Sparkline doesn't need a timestamp; the
+    headline card carries that."""
     _record_fetch("yfinance_sparkline", ticker)
     try:
         data = yf.Ticker(ticker).history(period="14d", interval="1d")
@@ -1856,18 +1885,20 @@ def fetch_sparkline_series(ticker: str) -> list:
 
 @st.cache_data(ttl=14400)
 def fetch_equity_snapshot(ticker: str) -> dict:
-    """Return {"price": last close, "pct_change": daily % vs prior close}.
-    Either field can be None if the data is unavailable. period=5d
+    """v18 Fix 2 — Return {"price", "pct_change", "fetched_at"}.
+    Any field can be None when the data is unavailable. period=5d
     guarantees we get at least two trading-day closes even after a
-    long weekend or holiday. Cached 4h alongside fetch_price so the
-    Equity Proxy Radar refreshes with each major market session."""
-    _record_fetch("yfinance_equity", ticker)
-    out = {"price": None, "pct_change": None}
+    long weekend or holiday. fetched_at is captured at fetch time
+    so it survives cache hits."""
+    out = {"price": None, "pct_change": None, "fetched_at": None}
     try:
         data = yf.Ticker(ticker).history(period="5d", interval="1d")
         if data.empty:
             return out
         out["price"] = float(data["Close"].iloc[-1])
+        out["fetched_at"] = (
+            datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        )
         if len(data) < 2:
             return out
         prior = float(data["Close"].iloc[-2])
@@ -2102,6 +2133,34 @@ CAPTION_TEXTS = {
         "nominal":  "Gas Stabilized: Ammonia plants restarted or CCS "
                     "capture scaled.",
     },
+    # v18 Fix 3 — EU gas storage caption tiers. <20% sub-critical
+    # heading into winter; 20-50% rebuild lagging; 80%+ healthy.
+    "eu_gas_storage": {
+        "critical": "Storage Sub-Critical: EU gas inventories below "
+                    "20% — winter cushion gone. Industrial demand "
+                    "destruction tier 2 likely if heating-season "
+                    "draw begins on this base.",
+        "warning":  "Rebuild Lagging: Q2 storage refill behind the "
+                    "80%+ pre-winter target. Watch import flows; "
+                    "sustained shortfall pulls TTF up.",
+        "nominal":  "Storage On-Track: EU buffer is rebuilding "
+                    "toward the 80%+ pre-winter target. AGSI+ "
+                    "daily report stable.",
+    },
+    # v18 Fix 4 — Diesel crack spread caption. Crack > $50/bbl
+    # signals product markets are running tighter than crude;
+    # consumer transmission accelerates regardless of Brent.
+    "diesel_crack": {
+        "critical": "Crack Blowout: refined product markets running "
+                    "tighter than crude. Diesel pass-through to "
+                    "freight, ag, and trucking accelerates "
+                    "independent of Brent.",
+        "warning":  "Crack Widening: refining margins above the "
+                    "normal $15-25/bbl band; downstream pricing "
+                    "pressure building.",
+        "nominal":  "Refining Margins Stable: diesel crack within "
+                    "the normal $15-25/bbl operating band.",
+    },
     "resin": {
         "critical": "Resin BOM Hit: medical device, sterile "
                     "packaging, and consumer goods carrying direct "
@@ -2282,6 +2341,10 @@ SOURCE_URLS = {
     "malacca":    "https://mykn.kuehne-nagel.com/news/",
     "hormuz":     "https://mykn.kuehne-nagel.com/news/",
     "panama":     "https://mykn.kuehne-nagel.com/news/",
+    # v18 Fix 3 — EU gas storage primary feed.
+    "eu_gas_storage": "https://agsi.gie.eu/",
+    # v18 Fix 4 — diesel crack source.
+    "diesel_crack":   "https://www.reuters.com/markets/commodities/",
 }
 
 
@@ -2347,6 +2410,23 @@ def _metric_health(value, baseline, crit, inverted=False):
     return (1.0 - (v - baseline) / span) * 100.0
 
 
+def _eu_gas_storage_health(pct):
+    """v18 Fix 3 — EU gas storage health gradient. AGSI+ storage
+    runs ~30-100% seasonally with 80%+ being healthy heading into
+    winter. Linear in between — 80% maps to 100, 20% maps to 0."""
+    if pct is None:
+        return None
+    try:
+        v = float(pct)
+    except (TypeError, ValueError):
+        return None
+    if v >= 80.0:
+        return 100.0
+    if v <= 20.0:
+        return 0.0
+    return ((v - 20.0) / 60.0) * 100.0
+
+
 def _avg_or_none(parts):
     cleaned = [p for p in parts if p is not None]
     if not cleaned:
@@ -2376,7 +2456,14 @@ def grs_compute(prices: dict, intel: dict | None = None) -> dict:
     brent_h = _metric_health(prices.get("Brent"), 100.0, 130.0)
     ttf_h = _metric_health(prices.get("TTF"), 52.0, 80.0)
     urea_h = _metric_health(intel.get("urea_spot_price_ton"), 320.0, 800.0)
-    commodity = _avg_or_none([brent_h, ttf_h, urea_h])
+    # v18 Fix 4 — diesel crack spread captures downstream consumer
+    # transmission Brent alone misses. "Normal" crack ~$15-25/bbl;
+    # critical >$50. Even weighting (1/4 each) keeps the cluster
+    # balanced.
+    diesel_h = _metric_health(
+        intel.get("diesel_crack_per_bbl"), 25.0, 50.0,
+    )
+    commodity = _avg_or_none([brent_h, ttf_h, urea_h, diesel_h])
 
     # Cluster 2 — Logistics Health
     malacca_sev = intel.get("malacca_severity")
@@ -2397,7 +2484,12 @@ def grs_compute(prices: dict, intel: dict | None = None) -> dict:
         intel.get("hormuz_daily_transit_count"), 80.0, 20.0, inverted=True
     )
     panama_h = _metric_health(
-        intel.get("panama_canal_neopanamax_price"), 1_500_000.0, 4_000_000.0
+        # v18 Fix 1c — recalibrated to today's actual auction-price
+        # band. The previous 1.5M / 4M anchors were tuned for
+        # peace-time conditions and read 100% on every realistic
+        # number, making the metric mute. New anchors: $385K =
+        # current normal (healthy floor), $1M = critical stress.
+        intel.get("panama_canal_neopanamax_price"), 385_000.0, 1_000_000.0
     )
     logistics = _avg_or_none([malacca_h, hormuz_h, panama_h])
 
@@ -2455,12 +2547,21 @@ def grs_compute(prices: dict, intel: dict | None = None) -> dict:
     # zero the cluster on its own.
     oecd_h = 0.0 if OECD_INVENTORY_BREACH else 100.0
 
-    # Weighted cluster average. Helium and CO2 each get 40%
-    # because both are now data-grounded gradients; OECD gets
-    # 20% because it remains a binary editorial fact.
+    # v18 Fix 3 — EU gas storage. Highest-quality directly-
+    # observable buffer indicator; AGSI+ publishes this daily.
+    # Linear gradient: 80%+ = healthy (100), 20% or below = 0,
+    # linear in between.
+    gas_storage_h = _eu_gas_storage_health(
+        intel.get("eu_gas_storage_pct"),
+    )
+
+    # v18 Fix 3 — rebalanced weights now that the cluster has 4
+    # signals. Helium + CO2 each drop from 40% to 30%; gas storage
+    # comes in at 20%; OECD stays at 20%.
     buffer_parts = [
-        (helium_h, 0.40),
-        (co2_h, 0.40),
+        (helium_h, 0.30),
+        (co2_h, 0.30),
+        (gas_storage_h, 0.20),
         (oecd_h, 0.20),
     ]
     cleaned = [(v, w) for v, w in buffer_parts if v is not None]
@@ -3270,17 +3371,51 @@ def fetch_all_intel(api_key: str) -> dict:
 # derived calculation, or an LLM retrieval.
 
 @st.cache_data(ttl=14400)
-def fetch_urea_yfinance() -> float | None:
-    """CME urea futures (UFV=F). Returns None if the ticker is not
-    accessible — caller falls back to Perplexity."""
-    _record_fetch("yfinance_urea", "UFV=F")
+def fetch_urea_yfinance():
+    """v18 Fix 2 — CME urea futures (UFV=F). Returns
+    (value, fetched_at) tuple; value is None if the ticker isn't
+    accessible. Caller falls back to Perplexity when value is None."""
     try:
         data = yf.Ticker("UFV=F").history(period="5d", interval="1d")
         if data.empty:
-            return None
-        return float(data["Close"].iloc[-1])
+            return None, None
+        return (
+            float(data["Close"].iloc[-1]),
+            datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
     except Exception:
+        return None, None
+
+
+@st.cache_data(ttl=14400)
+def fetch_diesel_yfinance():
+    """v18 Fix 4 — NY Harbor ULSD heating-oil futures (HO=F),
+    quoted in USD per gallon. Returns (price_per_bbl, fetched_at)
+    so the crack-spread calculation is straightforward downstream:
+    diesel_per_gal × 42 = diesel_per_bbl. Returns (None, None) if
+    the ticker isn't accessible."""
+    try:
+        data = yf.Ticker("HO=F").history(period="5d", interval="1d")
+        if data.empty:
+            return None, None
+        per_gal = float(data["Close"].iloc[-1])
+        return (
+            per_gal * 42.0,
+            datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+    except Exception:
+        return None, None
+
+
+def diesel_crack_per_bbl(diesel_per_bbl, brent_v):
+    """v18 Fix 4 — diesel crack spread = diesel ($/bbl) − Brent
+    ($/bbl). Returns None when either input is None. The crack is
+    the canonical refining-margin signal for downstream consumer
+    transmission; widens materially when product markets run
+    tighter than crude."""
+    if diesel_per_bbl is None or brent_v is None:
         return None
+    return float(diesel_per_bbl) - float(brent_v)
 
 
 def fetch_jet_fuel_derived(brent_v):
@@ -3452,6 +3587,29 @@ EDITORIAL_FACTS = {
         # 21-day re-check window — slower-moving than OECD fact.
         "expires_on": date(2026, 5, 21),
     },
+    # v18 Fix 1b — Panama Neopanamax editorial fallback. ACP
+    # publishes auction averages in batches every few weeks; on
+    # days between releases this fact fills the gap so the card
+    # doesn't sit STALE while a real number is sitting in the
+    # last ACP press release. The `target_intel_key` field marks
+    # this as a fallback into intel_data rather than a module
+    # global; apply_editorial_facts handles the routing.
+    "panama_neopanamax_avg_price": {
+        "value": 385_000.0,
+        "set_on": date(2026, 4, 26),
+        "set_by": "v18 brief (ACP press release, April 2026)",
+        "rationale":
+            "ACP reported the average auction price climbed from "
+            "~$140K pre-conflict to ~$385K between March and "
+            "April 2026. Anchors the Panama card and the GRS "
+            "Logistics cluster while ACP's next press release is "
+            "awaited.",
+        "primary_source":
+            "https://pancanal.com (ACP press releases) — "
+            "April 2026 reporting",
+        "expires_on": date(2026, 5, 28),
+        "target_intel_key": "panama_canal_neopanamax_price",
+    },
 }
 
 
@@ -3462,12 +3620,20 @@ EDITORIAL_FACTS = {
 _LIVE_INTEL_DATA = {}
 
 
-def apply_editorial_facts(today=None):
+def apply_editorial_facts(today=None, intel_data=None,
+                          intel_meta=None):
     """Fix C-5 — walk EDITORIAL_FACTS and reassign the module
     globals (OECD_INVENTORY_BREACH, EUROPEAN_AMMONIA_CAPACITY_PCT,
     CO2_BYPRODUCT_BREACH). Expired facts fall off automatically;
     the global defaults to a non-breach stance until live data
-    arrives. Returns a log dict for the editorial UI panel."""
+    arrives. Returns a log dict for the editorial UI panel.
+
+    v18 Fix 1b — also handles "fallback" facts that target an
+    intel_data key (`target_intel_key`). When a fallback fact has
+    not expired AND the live intel value is None, the fact's
+    value is written into intel_data and intel_meta so the card
+    renders the editorial number with an EDITORIAL footer instead
+    of going STALE."""
     today = today or date.today()
     log = {"applied": [], "expired": [], "evaluated_at": today.isoformat()}
 
@@ -3526,6 +3692,57 @@ def apply_editorial_facts(today=None):
     CO2_BYPRODUCT_BREACH = (
         EUROPEAN_AMMONIA_CAPACITY_PCT < EUROPEAN_AMMONIA_THRESHOLD_PCT
     )
+
+    # v18 Fix 1b — fallback facts that target a specific intel_data
+    # key. Only fire when (a) not expired AND (b) the live intel
+    # value is None. Writes both the value into intel_data and
+    # synthetic meta into intel_meta so the LAST PULL footer reads
+    # EDITORIAL.
+    for fact_key, fact in EDITORIAL_FACTS.items():
+        target_key = fact.get("target_intel_key")
+        if not target_key:
+            continue
+        expires = fact.get("expires_on")
+        if intel_data is None:
+            continue
+        live_value = intel_data.get(target_key)
+        if live_value is not None:
+            # Live data wins — log nothing, no fallback fired.
+            continue
+        if expires is not None and expires < today:
+            log["expired"].append({
+                "key": fact_key,
+                "target_intel_key": target_key,
+                "expired_on": expires.isoformat(),
+                "rationale": fact.get("rationale"),
+            })
+            continue
+        intel_data[target_key] = fact["value"]
+        if intel_meta is not None:
+            set_on_str = fact["set_on"].isoformat() if isinstance(
+                fact.get("set_on"), date,
+            ) else (fact.get("set_on") or "")
+            intel_meta.setdefault("metric_meta", {})[target_key] = {
+                "value": fact["value"],
+                "fetched_at": set_on_str,
+                "error": None,
+                "source_hint":
+                    "editorial fallback: " + fact.get(
+                        "primary_source", "n/a",
+                    ),
+                "raw": None,
+                "editorial_fact_fallback": True,
+            }
+        log["applied"].append({
+            "key": fact_key,
+            "target_intel_key": target_key,
+            "value": fact["value"],
+            "expires_on":
+                expires.isoformat() if expires else None,
+            "set_by": fact.get("set_by"),
+            "rationale": fact.get("rationale"),
+            "primary_source": fact.get("primary_source"),
+        })
     return log
 
 
@@ -3563,13 +3780,13 @@ def apply_realfeed_overlays(intel_data, intel_meta, prices):
     auditor."""
     metric_meta = intel_meta.setdefault("metric_meta", {})
 
-    _urea_live = fetch_urea_yfinance()
+    _urea_live, _urea_ts = fetch_urea_yfinance()
     if _urea_live is not None:
         _pre_urea = metric_meta.get("urea_spot_price_ton") or {}
         intel_data["urea_spot_price_ton"] = _urea_live
         metric_meta["urea_spot_price_ton"] = {
             "value": _urea_live,
-            "fetched_at":
+            "fetched_at": _urea_ts or
                 datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "error": None,
             "source_hint": "yfinance UFV=F (CME urea futures)",
@@ -5184,8 +5401,24 @@ with st.sidebar:
 # All downstream sections (Strategic Outlook, 3-column body, Threshold
 # Monitor, Playbook) reuse the same dicts. Caching is on each fetch
 # function (@st.cache_data ttl=14400), so subsequent reruns are free.
+# v18 Fix 2 — fetch_price now returns (value, fetched_at). Unpack
+# into parallel `prices` (floats, unchanged downstream contract) and
+# `prices_ts` (timestamps used by the LAST PULL footer).
 with st.spinner("Pulling live commodity feed..."):
-    prices = {name: fetch_price(tk) for name, tk in TICKERS.items()}
+    prices = {}
+    prices_ts = {}
+    for _name, _tk in TICKERS.items():
+        _val, _ts = fetch_price(_tk)
+        prices[_name] = _val
+        prices_ts[_name] = _ts
+
+# v18 Fix 4 — diesel HO=F fetched alongside the other commodity
+# tickers. Stored as $/bbl so the crack-spread math is direct.
+with st.spinner("Pulling diesel futures (HO=F)..."):
+    _diesel_per_bbl, _diesel_ts = fetch_diesel_yfinance()
+diesel_crack_v = diesel_crack_per_bbl(
+    _diesel_per_bbl, prices.get("Brent"),
+)
 
 with st.spinner("Pulling equity proxy snapshots..."):
     equity_snapshots = {
@@ -5258,8 +5491,29 @@ intel_meta = {
 # else in the file. All overrides flow through these two
 # functions and are auditable by the operator.
 apply_realfeed_overlays(intel_data, intel_meta, prices)
+
+# v18 Fix 4 — wire the diesel crack into intel_data so grs_compute,
+# the source dump, and the threshold monitor all see it. Source is
+# yfinance HO=F − Brent; surfaced with a derived source_hint.
+if diesel_crack_v is not None:
+    intel_data["diesel_crack_per_bbl"] = diesel_crack_v
+    intel_meta.setdefault("metric_meta", {})[
+        "diesel_crack_per_bbl"
+    ] = {
+        "value": diesel_crack_v,
+        "fetched_at": _diesel_ts or
+            datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "error": None,
+        "source_hint":
+            "yfinance HO=F − Brent (NY Harbor ULSD crack spread)",
+        "raw": None,
+    }
+
 editorial_log = apply_editorial_layer(intel_data, prices)
-editorial_facts_log = apply_editorial_facts()
+editorial_facts_log = apply_editorial_facts(
+    intel_data=intel_data,
+    intel_meta=intel_meta,
+)
 
 # Fix C-5 — populate the live-intel cache so helium_exhausted()
 # (and any other downstream gate that consults live signals) sees
@@ -5857,7 +6111,9 @@ with col1:
                     ),
                     "editorial",
                 )
-        ts = _FETCH_TIMESTAMPS.get(("yfinance_price", ticker))
+        # v18 Fix 2 — read fetched_at from the parallel prices_ts
+        # dict that the v18 fetch_price tuple-return now populates.
+        ts = prices_ts.get(label)
         return (_format_source_footer("MARKET", ts), "market")
 
     def _intel_footer(metric_key):
@@ -5925,6 +6181,32 @@ with col1:
             source_footer=_ttf_footer,
             source_footer_kind=_ttf_footer_kind,
         ),
+        # v18 Fix 4 — Diesel crack spread card. Sits under TTF in
+        # the Commodity Telemetry strip so the downstream-product
+        # tightness sits next to the upstream gas signal it
+        # complements. Baseline 25 / critical 50 in $/bbl.
+        card_numeric_html(
+            "DIESEL CRACK SPREAD  ($/bbl)",
+            diesel_crack_v,
+            25.0,
+            "$", True, fmt="{:,.1f}", delta_decimals=1,
+            use_baseline_fallback=False,
+            breach=(
+                diesel_crack_v is not None
+                and diesel_crack_v > 50
+            ),
+            warning=(
+                diesel_crack_v is not None
+                and 35 < diesel_crack_v <= 50
+            ),
+            caption_key="diesel_crack",
+            last_fetched_at=_diesel_ts,
+            source_hint="yfinance HO=F − Brent (NY Harbor ULSD)",
+            source_footer=_format_source_footer(
+                "MARKET", _diesel_ts,
+            ),
+            source_footer_kind="market",
+        ),
         card_numeric_html(
             "GOLD  (GC=F)", gold_v, BASELINE["Gold"],
             "$", False, fmt="{:,.2f}", delta_decimals=2,
@@ -5978,8 +6260,10 @@ with col1:
         "STX": "ai_storage",
     }
     def _equity_footer(equity_ticker_key):
-        ticker_symbol = EQUITY_TICKERS.get(equity_ticker_key)
-        ts = _FETCH_TIMESTAMPS.get(("yfinance_equity", ticker_symbol))
+        # v18 Fix 2 — read fetched_at from the snapshot dict, which
+        # fetch_equity_snapshot now populates inside the cache.
+        snap = equity_snapshots.get(equity_ticker_key) or {}
+        ts = snap.get("fetched_at")
         return _format_source_footer("MARKET", ts), "market"
 
     equity_cards = []
@@ -6303,6 +6587,25 @@ with col2:
             source_footer_kind="editorial",
         ))
 
+    # v18 Fix 3 — EU gas storage card. Sits next to CO2 in the
+    # Logistics & Inputs grid. Live AGSI+ %; 80%+ is healthy
+    # heading into winter, sub-20% is critical.
+    _gas_storage_v = intel_data.get("eu_gas_storage_pct")
+    _gas_breach = _gas_storage_v is not None and _gas_storage_v < 20
+    _gas_warn = (
+        _gas_storage_v is not None and 20 <= _gas_storage_v < 50
+    )
+    intel_cards.append(card_numeric_html(
+        "EU GAS STORAGE  (% of capacity)",
+        _gas_storage_v,
+        INTEL_BASELINE["eu_gas_storage_pct"],
+        "", False, fmt="{:.1f}", suffix="%", delta_decimals=1,
+        breach=_gas_breach,
+        warning=_gas_warn,
+        caption_key="eu_gas_storage",
+        **_meta_kwargs("eu_gas_storage_pct"),
+    ))
+
     _resin_breach = resin_v is not None and resin_v > 40
     _resin_warn = resin_v is not None and 20 < resin_v <= 40
     # Fix 3 — display the computed spike pct; baseline for the
@@ -6568,6 +6871,15 @@ with col3:
          0.0, "resin"),
         ("Jet Fuel > $1500/t", jet_v, 1500, "$", "gt", "",
          INTEL_BASELINE["jet_fuel_price_ton"], "jet"),
+        # v18 Fix 3 — EU gas storage tripwire (low-side breach).
+        ("EU Gas Storage < 20%",
+         intel_data.get("eu_gas_storage_pct"), 20, "", "lt", "%",
+         INTEL_BASELINE["eu_gas_storage_pct"],
+         "eu_gas_storage"),
+        # v18 Fix 4 — Diesel crack tripwire. Critical above $50/bbl;
+        # baseline shown is the normal mid-range $25.
+        ("Diesel crack > $50/bbl", diesel_crack_v, 50, "$", "gt", "",
+         25.0, "diesel_crack"),
     ]
     threshold_rows_html = []
     for name, val, thr, cur, op, sfx, baseline_val, insight_key in thresholds:
