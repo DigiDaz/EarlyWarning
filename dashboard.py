@@ -8,7 +8,7 @@ import streamlit as st
 import yfinance as yf
 
 st.set_page_config(
-    page_title="Global Supply Chain Contagion HUD",
+    page_title="Global Supply Chain Overview",
     page_icon="\U0001F6E1",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -544,6 +544,313 @@ CUSTOM_CSS = """
         padding-bottom: 0.4rem;
         margin: 0.4rem 0 0.85rem 0;
     }
+    /* ============================================================
+       v13 GLOBAL SUPPLY CHAIN OVERVIEW — UI/UX OVERHAUL
+       ============================================================ */
+
+    /* v13 — Glassmorphism. All .intel-card surfaces get a frosted-glass
+       treatment over the dark page background. backdrop-filter is the
+       core effect; the rgba background and faint inner border give the
+       characteristic translucent depth. */
+    .intel-card {
+        background: rgba(255, 255, 255, 0.05) !important;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    }
+
+    /* v13 — Status glow tiers.
+       CRITICAL: pulsing red outer glow.
+       WARNING: static amber glow.
+       Both override the v12 .intel-card-breached border treatment so
+       the glow becomes the dominant alert affordance. */
+    @keyframes pulse-critical {
+        0%, 100% {
+            box-shadow: 0 0 20px #ff4b4b,
+                        0 0 6px rgba(255, 75, 75, 0.4) inset;
+        }
+        50% {
+            box-shadow: 0 0 38px #ff4b4b,
+                        0 0 12px rgba(255, 75, 75, 0.55) inset;
+        }
+    }
+    .intel-card-breached {
+        border-color: rgba(255, 75, 75, 0.55) !important;
+        box-shadow: 0 0 20px #ff4b4b !important;
+        animation: pulse-critical 2.2s ease-in-out infinite;
+    }
+    .intel-card-warning {
+        border-color: rgba(234, 179, 8, 0.55) !important;
+        box-shadow: 0 0 15px rgba(234, 179, 8, 0.55) !important;
+    }
+
+    /* v13 — Critical Alert Ribbon. Sticky to the top of the scroll
+       container, full-bleed across the block-container, high-contrast
+       red-on-black with a slow pulse so the eye locks onto it the
+       moment a critical breach is on the page. Hidden when there are
+       no breaches (.is-empty). */
+    @keyframes ribbon-pulse {
+        0%, 100% {
+            background: linear-gradient(90deg, #000 0%, #1a0000 50%, #000 100%);
+            box-shadow: 0 0 24px rgba(255, 75, 75, 0.30);
+        }
+        50% {
+            background: linear-gradient(90deg, #1a0000 0%, #2a0000 50%, #1a0000 100%);
+            box-shadow: 0 0 36px rgba(255, 75, 75, 0.55);
+        }
+    }
+    .critical-ribbon {
+        position: sticky;
+        top: 0;
+        z-index: 9999;
+        background: linear-gradient(90deg, #000 0%, #1a0000 50%, #000 100%);
+        color: #ff4b4b;
+        border-top: 1px solid #ff4b4b;
+        border-bottom: 1px solid #ff4b4b;
+        padding: 0.55rem 1rem;
+        margin: -2rem -1rem 1.25rem -1rem;
+        text-align: center;
+        font-family: 'Courier New', monospace;
+        font-size: 0.85rem;
+        letter-spacing: 1.8px;
+        text-transform: uppercase;
+        font-weight: 700;
+        animation: ribbon-pulse 2.4s ease-in-out infinite;
+        text-shadow: 0 0 6px rgba(255, 75, 75, 0.7);
+    }
+    .critical-ribbon .ribbon-tag {
+        background: #ff4b4b;
+        color: #000;
+        padding: 1px 6px;
+        border-radius: 2px;
+        margin: 0 4px;
+        font-weight: 800;
+    }
+    .critical-ribbon .ribbon-sep {
+        color: #6b7280;
+        margin: 0 0.65rem;
+    }
+
+    /* v13 — Global Resilience Score (GRS) header panel. The GRS lives
+       directly under the title block and is the dominant element on
+       first paint. Color theming flips between hard-break red (<50%),
+       warn amber (50-75%), and ok green (>=75%) so a glance answers
+       "are we OK?". */
+    .grs-panel {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 1.4rem 1.75rem 1.2rem 1.75rem;
+        margin-bottom: 1.5rem;
+        font-family: 'Courier New', monospace;
+    }
+    .grs-panel.grs-hard-break {
+        border-color: rgba(255, 75, 75, 0.45);
+        box-shadow: 0 0 30px rgba(255, 75, 75, 0.18);
+    }
+    .grs-panel.grs-warn {
+        border-color: rgba(234, 179, 8, 0.45);
+        box-shadow: 0 0 24px rgba(234, 179, 8, 0.15);
+    }
+    .grs-panel.grs-ok {
+        border-color: rgba(16, 185, 129, 0.45);
+        box-shadow: 0 0 24px rgba(16, 185, 129, 0.12);
+    }
+    .grs-header {
+        display: flex;
+        align-items: baseline;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    .grs-title {
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 3px;
+        font-size: 0.85rem;
+    }
+    .grs-tag {
+        font-size: 0.65rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        padding: 2px 7px;
+        border-radius: 2px;
+        font-weight: 700;
+    }
+    .grs-tag.grs-hard-break {
+        background: #ff4b4b;
+        color: #000;
+        animation: pulse-critical 2.2s ease-in-out infinite;
+    }
+    .grs-tag.grs-warn {
+        background: #eab308;
+        color: #000;
+    }
+    .grs-tag.grs-ok {
+        background: #10b981;
+        color: #000;
+    }
+    .grs-score {
+        margin-left: auto;
+        font-size: 3.2rem;
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: 1px;
+    }
+    .grs-score.grs-hard-break {
+        color: #ff4b4b;
+        text-shadow: 0 0 24px rgba(255, 75, 75, 0.55);
+    }
+    .grs-score.grs-warn {
+        color: #eab308;
+        text-shadow: 0 0 18px rgba(234, 179, 8, 0.45);
+    }
+    .grs-score.grs-ok {
+        color: #10b981;
+        text-shadow: 0 0 18px rgba(16, 185, 129, 0.40);
+    }
+    .grs-score .grs-score-unit {
+        font-size: 1.4rem;
+        color: #9ca3af;
+        margin-left: 0.2rem;
+        letter-spacing: 1px;
+    }
+    .grs-bar {
+        height: 10px;
+        background: rgba(255,255,255,0.06);
+        border-radius: 5px;
+        overflow: hidden;
+        margin-top: 1rem;
+    }
+    .grs-bar-fill {
+        height: 100%;
+        transition: width 0.6s ease;
+    }
+    .grs-bar-fill.grs-hard-break {
+        background: linear-gradient(90deg, #dc2626 0%, #ff4b4b 100%);
+    }
+    .grs-bar-fill.grs-warn {
+        background: linear-gradient(90deg, #ca8a04 0%, #eab308 100%);
+    }
+    .grs-bar-fill.grs-ok {
+        background: linear-gradient(90deg, #059669 0%, #10b981 100%);
+    }
+    .grs-clusters {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .grs-cluster {
+        text-align: center;
+        padding: 0.4rem 0.25rem 0.2rem 0.25rem;
+    }
+    .grs-cluster-label {
+        color: #9ca3af;
+        text-transform: uppercase;
+        font-size: 0.66rem;
+        letter-spacing: 1.8px;
+        margin-bottom: 0.4rem;
+    }
+    .grs-cluster-value {
+        font-size: 1.45rem;
+        font-weight: 600;
+        line-height: 1.1;
+        letter-spacing: 1px;
+    }
+    .grs-cluster-value.grs-hard-break { color: #ff4b4b; }
+    .grs-cluster-value.grs-warn { color: #eab308; }
+    .grs-cluster-value.grs-ok { color: #10b981; }
+    .grs-cluster-value.grs-unavail { color: #6b7280; font-size: 0.95rem; }
+    .grs-cluster-detail {
+        color: #6b7280;
+        font-size: 0.65rem;
+        letter-spacing: 0.5px;
+        margin-top: 0.3rem;
+        line-height: 1.35;
+    }
+    .grs-info {
+        margin-top: 1rem;
+        padding-top: 0.85rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        color: #9ca3af;
+        font-size: 0.78rem;
+        line-height: 1.55;
+        font-style: italic;
+    }
+    .grs-info strong {
+        color: #fca5a5;
+        font-style: normal;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 0.7rem;
+    }
+
+    /* v13 — Sparkline (inline 7-day trend on key metric cards). Sits
+       inline next to the card value; color matches the breach state
+       (red = critical rise, amber = warning, green = stable). */
+    .sparkline {
+        display: inline-block;
+        vertical-align: middle;
+        margin-left: 0.5rem;
+        opacity: 0.95;
+    }
+    .sparkline-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.4rem;
+        white-space: nowrap;
+        overflow: hidden;
+    }
+    .sparkline-row .intel-card-value {
+        margin-bottom: 0;
+        flex: 0 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .sparkline-row .sparkline {
+        margin-left: 0;
+        flex: 0 0 auto;
+    }
+    .sparkline-label {
+        font-size: 0.62rem;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-left: 0.35rem;
+    }
+
+    /* v13 — Subtitle under the main HUD title. */
+    .hud-subtitle {
+        color: #9ca3af;
+        font-family: 'Courier New', monospace;
+        font-size: 0.85rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        margin-top: -0.5rem;
+        margin-bottom: 1rem;
+    }
+    .hud-subtitle .intel-armed {
+        color: #00ffd1;
+        font-weight: 700;
+        letter-spacing: 2px;
+    }
+
+    /* v13 — Mermaid cascade iframe wrapper sits inside the same
+       cascade-container shell so the title bar above it stays visually
+       attached to the diagram. */
+    .mermaid-frame-wrap {
+        margin-top: 0.4rem;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 4px;
+        overflow: hidden;
+    }
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -961,6 +1268,22 @@ def fetch_price(ticker: str) -> float | None:
 
 
 @st.cache_data(ttl=14400)
+def fetch_sparkline_series(ticker: str) -> list:
+    """v13 — return last 7 trading-day Close values for sparkline
+    rendering. Cached on the same 4-hour window as fetch_price /
+    fetch_equity_snapshot so the trend is consistent with the headline
+    number on every card."""
+    try:
+        data = yf.Ticker(ticker).history(period="14d", interval="1d")
+        if data.empty:
+            return []
+        closes = [float(x) for x in data["Close"].tolist()]
+        return closes[-7:] if len(closes) >= 7 else closes
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=14400)
 def fetch_equity_snapshot(ticker: str) -> dict:
     """Return {"price": last close, "pct_change": daily % vs prior close}.
     Either field can be None if the data is unavailable. period=5d
@@ -1054,6 +1377,303 @@ def malacca_shadow_active(intel):
     if pct is None:
         return False
     return pct > MALACCA_SHADOW_THRESHOLD_PCT
+
+
+# ============================================================
+# v13 — Global Resilience Score (GRS) + UI helpers
+# ============================================================
+
+def _metric_health(value, baseline, crit, inverted=False):
+    """Map a metric to a 0-100 health score.
+
+    inverted=False (default):
+        value <= baseline → 100 (healthy)
+        value >= crit     → 0   (critical)
+        linear in between
+    inverted=True (e.g., Hormuz transit count, where LOWER is bad):
+        value >= baseline → 100
+        value <= crit     → 0
+        linear in between
+
+    Returns None if value is None — the cluster average will skip it
+    rather than treat missing data as either healthy or critical."""
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if inverted:
+        if v >= baseline:
+            return 100.0
+        if v <= crit:
+            return 0.0
+        span = baseline - crit
+        if span <= 0:
+            return None
+        return (v - crit) / span * 100.0
+    if v <= baseline:
+        return 100.0
+    if v >= crit:
+        return 0.0
+    span = crit - baseline
+    if span <= 0:
+        return None
+    return (1.0 - (v - baseline) / span) * 100.0
+
+
+def _avg_or_none(parts):
+    cleaned = [p for p in parts if p is not None]
+    if not cleaned:
+        return None
+    return sum(cleaned) / len(cleaned)
+
+
+def grs_compute(prices: dict, intel: dict | None = None) -> dict:
+    """v13 — Global Resilience Score. Three clusters averaged equally:
+
+      1. Commodity Health (Brent + TTF + Fertilizer/Urea)
+      2. Logistics Health (Malacca + Hormuz + Panama)
+      3. Physical Buffers (Helium boil-off + CO2 byproduct + OECD oil inv)
+
+    Returns a dict with the overall score, each cluster's score, and
+    the per-metric components used for the breakdown tooltip. Any
+    cluster whose components are all unavailable returns None for
+    that cluster — the overall score then averages whichever clusters
+    do have data.
+
+    Hard Break threshold is 50%: below that, physical availability is
+    overriding market pricing and the dashboard is in resource-rationing
+    territory."""
+    intel = intel or {}
+
+    # Cluster 1 — Commodity Health
+    brent_h = _metric_health(prices.get("Brent"), 100.0, 130.0)
+    ttf_h = _metric_health(prices.get("TTF"), 52.0, 80.0)
+    urea_h = _metric_health(intel.get("urea_spot_price_ton"), 320.0, 800.0)
+    commodity = _avg_or_none([brent_h, ttf_h, urea_h])
+
+    # Cluster 2 — Logistics Health
+    malacca_sev = intel.get("malacca_severity")
+    if malacca_sev == "critical":
+        malacca_h = 0.0
+    elif malacca_sev == "elevated":
+        malacca_h = 30.0
+    elif malacca_shadow_active(intel):
+        malacca_h = 55.0
+    elif malacca_sev == "nominal" or malacca_sev is None:
+        # No live signal → assume nominal for health math (the engine
+        # itself still treats None as None and does not fire rules).
+        malacca_h = 100.0
+    else:
+        malacca_h = 100.0
+
+    hormuz_h = _metric_health(
+        intel.get("hormuz_daily_transit_count"), 80.0, 20.0, inverted=True
+    )
+    panama_h = _metric_health(
+        intel.get("panama_canal_neopanamax_price"), 1_500_000.0, 4_000_000.0
+    )
+    logistics = _avg_or_none([malacca_h, hormuz_h, panama_h])
+
+    # Cluster 3 — Physical Buffers
+    if helium_exhausted():
+        helium_h = 0.0
+    else:
+        days = helium_days_elapsed()
+        # Pre-FM (negative or zero days) → 100. Approaching boil-off
+        # threshold → ramps to 0.
+        ratio = max(0.0, min(1.0, days / float(HELIUM_BOIL_OFF_DAYS)))
+        helium_h = (1.0 - ratio) * 100.0
+    co2_h = 0.0 if CO2_BYPRODUCT_BREACH else 100.0
+    oecd_h = 0.0 if OECD_INVENTORY_BREACH else 100.0
+    buffers = _avg_or_none([helium_h, co2_h, oecd_h])
+
+    overall = _avg_or_none([commodity, logistics, buffers])
+
+    return {
+        "overall": overall,
+        "commodity": commodity,
+        "logistics": logistics,
+        "buffers": buffers,
+        "components": {
+            "brent": brent_h,
+            "ttf": ttf_h,
+            "urea": urea_h,
+            "malacca": malacca_h,
+            "hormuz": hormuz_h,
+            "panama": panama_h,
+            "helium": helium_h,
+            "co2": co2_h,
+            "oecd": oecd_h,
+        },
+    }
+
+
+def grs_tier(score):
+    """Three-tier classification used for color theming and the
+    'HARD BREAK' tag on the GRS panel."""
+    if score is None:
+        return "unavail"
+    if score < 50:
+        return "hard-break"
+    if score < 75:
+        return "warn"
+    return "ok"
+
+
+def build_critical_ribbon(prices: dict, intel: dict | None = None) -> str:
+    """v13 — assemble the critical-alert ribbon text from active
+    physical-logic gates. Returns an empty string when nothing is
+    breached so the caller can hide the ribbon entirely."""
+    intel = intel or {}
+    pieces = []
+
+    if helium_exhausted():
+        pieces.append(
+            f'<span class="ribbon-tag">CRITICAL</span> '
+            f'HELIUM EXHAUSTED (DAY {helium_days_elapsed()})'
+        )
+    if CO2_BYPRODUCT_BREACH:
+        pieces.append(
+            '<span class="ribbon-tag">CRITICAL</span> '
+            'CO2 BYPRODUCT EXHAUSTED'
+        )
+    if OECD_INVENTORY_BREACH:
+        pieces.append(
+            f'<span class="ribbon-tag">BREACH</span> '
+            f'OECD OIL INVENTORIES &lt; '
+            f'{OECD_INVENTORY_OPERATIONAL_MIN_MB}MB'
+        )
+
+    # Live intel-driven additions — kept compact so the ribbon stays
+    # one line on a 1400px container.
+    if intel.get("malacca_severity") == "critical":
+        pieces.append(
+            '<span class="ribbon-tag">CRITICAL</span> MALACCA BLOCKADE'
+        )
+    if intel.get("india_rice_ban_status") == "ACTIVE":
+        pieces.append(
+            '<span class="ribbon-tag">BREACH</span> INDIA RICE BAN ACTIVE'
+        )
+    brent = prices.get("Brent")
+    if brent is not None and brent > 130:
+        pieces.append(
+            f'<span class="ribbon-tag">BREACH</span> '
+            f'BRENT &gt; $130 (live: ${brent:,.0f})'
+        )
+
+    if not pieces:
+        return ""
+    sep = '<span class="ribbon-sep">|</span>'
+    return sep.join(pieces)
+
+
+def render_sparkline_svg(values, color="#10b981", width=72, height=22):
+    """Build an inline SVG path showing the 7-day trend for a single
+    metric. Color is chosen by the caller based on breach state:
+        red    (#ff4b4b) — current value is in the BREACHED tier
+        amber  (#eab308) — current value is in the WARNING tier
+        green  (#10b981) — stable / nominal
+    Returns an empty string if there is not enough data to draw a line."""
+    if not values or len(values) < 2:
+        return ""
+    lo, hi = min(values), max(values)
+    if hi == lo:
+        # Flat series → flat horizontal stroke at mid-height.
+        y = height / 2.0
+        d = f"M0,{y:.1f} L{width},{y:.1f}"
+    else:
+        n = len(values)
+        pts = []
+        for i, v in enumerate(values):
+            x = (i / (n - 1)) * width
+            # Flip Y so higher value renders higher on the SVG.
+            y = height - ((v - lo) / (hi - lo)) * height
+            pts.append(f"{'M' if i == 0 else 'L'}{x:.2f},{y:.2f}")
+        d = " ".join(pts)
+    # A faint area fill underneath the stroke gives the trend visual
+    # weight without competing with the headline number.
+    if hi != lo:
+        area_pts = list(pts) + [f"L{width},{height}", f"L0,{height}", "Z"]
+        area_d = " ".join(area_pts)
+        area = (
+            f'<path d="{area_d}" fill="{color}" '
+            f'fill-opacity="0.18" stroke="none"/>'
+        )
+    else:
+        area = ""
+    return (
+        f'<svg class="sparkline" viewBox="0 0 {width} {height}" '
+        f'width="{width}" height="{height}" '
+        f'preserveAspectRatio="none" '
+        f'xmlns="http://www.w3.org/2000/svg">'
+        f'{area}'
+        f'<path d="{d}" stroke="{color}" stroke-width="1.6" '
+        f'fill="none" stroke-linecap="round" '
+        f'stroke-linejoin="round" '
+        f'vector-effect="non-scaling-stroke"/>'
+        f'</svg>'
+    )
+
+
+def sparkline_color_for_breach(breach: bool, warning: bool = False) -> str:
+    """v13 — color-key for the trend mini-chart. Critical rise → red,
+    warning → amber, stable → green."""
+    if breach:
+        return "#ff4b4b"
+    if warning:
+        return "#eab308"
+    return "#10b981"
+
+
+def render_mermaid_cascade(co2_breach: bool):
+    """v13 — render the Energy → Ammonia → CO2 → Meat/Medical cascade
+    using Mermaid via st.components.v1.html (iframe with the Mermaid
+    ESM module loaded from CDN; no new pip dependency).
+
+    When `co2_breach` is True, the CO2 Byproduct and Meat/Medical Gas
+    nodes adopt the spec'd `fill:#ff4b4b,stroke:#fff,stroke-width:2px`
+    treatment to make the active downstream collapse impossible to miss."""
+    if co2_breach:
+        co2_style = "fill:#ff4b4b,stroke:#fff,stroke-width:2px,color:#fff"
+        med_style = "fill:#ff4b4b,stroke:#fff,stroke-width:2px,color:#fff"
+    else:
+        co2_style = "fill:#854d0e,stroke:#9ca3af,stroke-width:1px,color:#fff"
+        med_style = "fill:#1e3a8a,stroke:#9ca3af,stroke-width:1px,color:#fff"
+
+    mermaid_def = (
+        "flowchart LR\n"
+        "    A[\"Energy<br/>(Natural Gas)\"] --> B[\"Ammonia<br/>Production\"]\n"
+        "    B --> C[\"CO2<br/>Byproduct\"]\n"
+        "    C --> D[\"Meat /<br/>Medical Gas\"]\n"
+        "    style A fill:#1e3a8a,stroke:#9ca3af,stroke-width:1px,color:#fff\n"
+        "    style B fill:#854d0e,stroke:#9ca3af,stroke-width:1px,color:#fff\n"
+        f"    style C {co2_style}\n"
+        f"    style D {med_style}\n"
+    )
+    # mermaid_def must be embedded raw — html.escape would mangle
+    # the `-->` arrows and `<br/>` line breaks. The content is
+    # hardcoded (no user input flows in), so there is no XSS surface.
+    html_body = (
+        "<!DOCTYPE html><html><head>"
+        "<style>"
+        "html,body{background:transparent;margin:0;padding:0;"
+        "font-family:'Courier New',monospace;}"
+        ".mermaid{display:flex;justify-content:center;padding:8px;}"
+        "</style></head><body>"
+        f'<pre class="mermaid">\n{mermaid_def}</pre>'
+        '<script type="module">'
+        "import mermaid from "
+        "'https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/"
+        "mermaid.esm.min.mjs';"
+        "mermaid.initialize({startOnLoad:true,theme:'dark',"
+        "securityLevel:'loose',"
+        "themeVariables:{fontFamily:'Courier New, monospace',"
+        "fontSize:'13px'}});"
+        "</script></body></html>"
+    )
+    st.components.v1.html(html_body, height=180, scrolling=False)
 
 
 def _coerce_number(value):
@@ -1826,7 +2446,8 @@ def render_prob_bar(label: str, pct: float, base_pct: float):
 
 def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
                       fmt="{:,.0f}", suffix="", delta_decimals=0,
-                      use_baseline_fallback=True, breach=False):
+                      use_baseline_fallback=True, breach=False,
+                      warning=False, sparkline_series=None):
     """Numeric card returning a single HTML string for the .intel-grid
     wrapper.
 
@@ -1844,13 +2465,27 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
     raw `intel_data` dict where missing values are still None. Fallback
     is presentation-only.
 
-    `breach=True` adds the .intel-card-breached class for the High-Alert
-    border + glow. Baseline-fallback and DATA UNAVAILABLE never show as
-    breached because we cannot honestly assert a breach without live
-    data."""
+    Status flags:
+      `breach=True`   → .intel-card-breached (pulsing red glow)
+      `warning=True`  → .intel-card-warning (static amber glow)
+      neither         → plain glassmorphic card
+    breach takes precedence if both are set.
+
+    `sparkline_series` (v13) — optional 7-day price series. When
+    provided, renders an inline SVG sparkline next to the headline
+    value. Color picks up the breach/warning state automatically."""
     label_safe = html.escape(label)
-    card_class = (
-        "intel-card intel-card-breached" if breach else "intel-card"
+    if breach:
+        card_class = "intel-card intel-card-breached"
+    elif warning:
+        card_class = "intel-card intel-card-warning"
+    else:
+        card_class = "intel-card"
+
+    spark_color = sparkline_color_for_breach(breach, warning)
+    sparkline_html = (
+        render_sparkline_svg(sparkline_series, color=spark_color)
+        if sparkline_series else ""
     )
 
     if value is None and use_baseline_fallback and baseline is not None:
@@ -1884,21 +2519,38 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
     else:
         delta_str = f"{delta_part}{suffix} (vs 0 baseline)"
     # Pill color follows the Threshold Monitor verdict, NOT the daily
-    # delta direction. This kills the "false green" bug: e.g., Gold has
-    # bearish_on_rise=False (haven-flow framing) but its threshold is
-    # `> $4600`, so a $5000 reading USED to render a green pill (delta
-    # vs baseline is positive in the "good" direction) while the card
-    # border was red (breached). With this rule:
-    #   breach=True  → red pill, regardless of which way the day moved
-    #   breach=False → green pill (only NOMINAL gets green)
-    # `bearish_on_rise` is now informational only — kept on the
-    # signature for compatibility but no longer drives pill color.
-    delta_class = "delta-bear" if breach else "delta-bull"
+    # delta direction. v13: WARNING tier renders amber to match the
+    # static amber glow on the card frame.
+    if breach:
+        delta_class = "delta-bear"
+    elif warning:
+        delta_class = "delta-bear"
+    else:
+        delta_class = "delta-bull"
     value_display = f"{currency}{fmt.format(value)}{suffix}"
+
+    # When a sparkline is supplied, render value + sparkline side by
+    # side in a flex row instead of stacked vertically — keeps the
+    # card compact and the trend visually attached to the number.
+    if sparkline_html:
+        value_block = (
+            f'<div class="sparkline-row">'
+            f'<div class="intel-card-value">'
+            f'{html.escape(value_display)}</div>'
+            f'{sparkline_html}'
+            f'<span class="sparkline-label">7D</span>'
+            f'</div>'
+        )
+    else:
+        value_block = (
+            f'<div class="intel-card-value">'
+            f'{html.escape(value_display)}</div>'
+        )
+
     return (
         f'<div class="{card_class}">'
         f'<div class="intel-card-label">{label_safe}</div>'
-        f'<div class="intel-card-value">{html.escape(value_display)}</div>'
+        f'{value_block}'
         f'<div class="intel-card-delta {delta_class}">'
         f'{html.escape(delta_str)}</div>'
         f'</div>'
@@ -1986,10 +2638,191 @@ with st.sidebar:
         )
 
 
-# ---------- MAIN HEADER ----------
-st.markdown('<h1 class="hud-title">■ Global Supply Chain Contagion HUD</h1>',
-            unsafe_allow_html=True)
+# ---------- DATA FETCH (consolidated; runs before any rendering) ----------
+# Fetch upstream data FIRST so the v13 Critical Alert Ribbon and the
+# Global Resilience Score header can both read from the live snapshot.
+# All downstream sections (Strategic Outlook, 3-column body, Threshold
+# Monitor, Playbook) reuse the same dicts. Caching is on each fetch
+# function (@st.cache_data ttl=14400), so subsequent reruns are free.
+with st.spinner("Pulling live commodity feed..."):
+    prices = {name: fetch_price(tk) for name, tk in TICKERS.items()}
 
+with st.spinner("Pulling equity proxy snapshots..."):
+    equity_snapshots = {
+        key: fetch_equity_snapshot(tk) for key, tk in EQUITY_TICKERS.items()
+    }
+equity_changes = {
+    key: snap.get("pct_change") for key, snap in equity_snapshots.items()
+}
+
+# v13 — 7-day sparkline series for the trend mini-charts on Brent,
+# Gold, and WDC. Cached on the same 4-hour TTL as fetch_price.
+sparkline_series = {
+    "Brent": fetch_sparkline_series(TICKERS["Brent"]),
+    "Gold": fetch_sparkline_series(TICKERS["Gold"]),
+    "WDC": fetch_sparkline_series(EQUITY_TICKERS["WDC"]),
+}
+
+intel_data = {}
+intel_meta = {"fetched_at": None, "error": None, "raw": None}
+if api_key:
+    with st.spinner("Querying Perplexity sonar-pro for logistics intel..."):
+        intel_result = fetch_perplexity_intel(api_key)
+    intel_meta["fetched_at"] = intel_result.get("fetched_at")
+    intel_meta["error"] = intel_result.get("error")
+    intel_meta["raw"] = intel_result.get("raw")
+    intel_data = intel_result.get("data") or {}
+else:
+    intel_meta["error"] = "Perplexity intel paused — no API key."
+
+# Scenario probabilities + Global Resilience Score computed once for
+# the consolidated snapshot so every section is internally consistent.
+adjusted = adjust_probabilities(prices, intel_data, equity_changes)
+grs = grs_compute(prices, intel_data)
+
+# ---------- v13 CRITICAL ALERT RIBBON (sticky, absolute top) ----------
+# High-contrast red-on-black sticky bar. Hidden when nothing is
+# breached. Pulls from physical-logic gates + live intel critical
+# states. Lives BEFORE the title so it owns the absolute top of the
+# scroll container.
+_ribbon_html = build_critical_ribbon(prices, intel_data)
+if _ribbon_html:
+    st.markdown(
+        f'<div class="critical-ribbon">{_ribbon_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+# ---------- MAIN HEADER (v13 branding) ----------
+st.markdown(
+    '<h1 class="hud-title">■ Global Supply Chain Overview</h1>',
+    unsafe_allow_html=True,
+)
+_intel_grade = "ARMED" if api_key else "STANDBY"
+_grade_class = "intel-armed" if api_key else ""
+st.markdown(
+    f'<div class="hud-subtitle">'
+    f'Strategic Logistics &amp; Resource Intelligence '
+    f'&nbsp;|&nbsp; Intel Grade: '
+    f'<span class="{_grade_class}">{_intel_grade}</span>'
+    f'</div>',
+    unsafe_allow_html=True,
+)
+
+# ---------- v13 GLOBAL RESILIENCE SCORE (GRS) HEADER ----------
+# Single composite metric averaging three equally-weighted clusters:
+#   1. Commodity Health   — Brent, TTF, Urea (fertilizer)
+#   2. Logistics Health   — Malacca, Hormuz, Panama
+#   3. Physical Buffers   — Helium boil-off, CO2 byproduct, OECD oil inv
+# A score below 50% indicates a 'Hard Break' — physical availability
+# is overriding market pricing and the dashboard is in resource-
+# rationing territory.
+_grs_overall = grs["overall"]
+_grs_tier = grs_tier(_grs_overall)
+_grs_panel_class = f"grs-panel grs-{_grs_tier}" if _grs_tier != "unavail" \
+    else "grs-panel"
+
+if _grs_overall is None:
+    _grs_score_html = (
+        '<div class="grs-score grs-unavail" '
+        'style="color:#6b7280;font-size:1.6rem;">DATA UNAVAILABLE</div>'
+    )
+    _grs_bar_html = ""
+    _grs_tag_html = ""
+else:
+    if _grs_tier == "hard-break":
+        _grs_tag_html = (
+            '<span class="grs-tag grs-hard-break">HARD BREAK</span>'
+        )
+    elif _grs_tier == "warn":
+        _grs_tag_html = '<span class="grs-tag grs-warn">DEGRADED</span>'
+    else:
+        _grs_tag_html = '<span class="grs-tag grs-ok">NOMINAL</span>'
+    _grs_score_html = (
+        f'<div class="grs-score grs-{_grs_tier}">'
+        f'{_grs_overall:.1f}<span class="grs-score-unit">%</span>'
+        f'</div>'
+    )
+    _grs_bar_html = (
+        f'<div class="grs-bar">'
+        f'<div class="grs-bar-fill grs-{_grs_tier}" '
+        f'style="width: {_grs_overall:.1f}%;"></div>'
+        f'</div>'
+    )
+
+
+def _cluster_block(label, score, detail):
+    if score is None:
+        return (
+            f'<div class="grs-cluster">'
+            f'<div class="grs-cluster-label">{label}</div>'
+            f'<div class="grs-cluster-value grs-unavail">'
+            f'DATA UNAVAILABLE</div>'
+            f'<div class="grs-cluster-detail">{detail}</div>'
+            f'</div>'
+        )
+    tier = grs_tier(score)
+    return (
+        f'<div class="grs-cluster">'
+        f'<div class="grs-cluster-label">{label}</div>'
+        f'<div class="grs-cluster-value grs-{tier}">'
+        f'{score:.0f}<span style="font-size:0.85rem;">%</span></div>'
+        f'<div class="grs-cluster-detail">{detail}</div>'
+        f'</div>'
+    )
+
+
+_clusters_html = (
+    '<div class="grs-clusters">'
+    + _cluster_block(
+        "Commodity Health",
+        grs["commodity"],
+        "Brent · TTF · Fertilizer (Urea)",
+    )
+    + _cluster_block(
+        "Logistics Health",
+        grs["logistics"],
+        "Malacca · Hormuz · Panama",
+    )
+    + _cluster_block(
+        "Physical Buffers",
+        grs["buffers"],
+        "Helium · CO2 Byproduct · OECD Oil Inv",
+    )
+    + '</div>'
+)
+
+st.markdown(
+    f'<div class="{_grs_panel_class}">'
+    f'<div class="grs-header">'
+    f'<span class="grs-title">◆ Global Resilience Score (GRS)</span>'
+    f'{_grs_tag_html}'
+    f'{_grs_score_html}'
+    f'</div>'
+    f'{_grs_bar_html}'
+    f'{_clusters_html}'
+    f'</div>',
+    unsafe_allow_html=True,
+)
+with st.expander("ⓘ How is the Global Resilience Score calculated?",
+                 expanded=False):
+    st.markdown(
+        "**The GRS measures total systemic health.** A score below 50% "
+        "indicates a **Hard Break** where physical availability "
+        "overrides market pricing.\n\n"
+        "It averages three equally-weighted clusters:\n"
+        "1. **Commodity Health** — Brent ($100→$130), TTF (€52→€80), "
+        "Urea ($320→$800).\n"
+        "2. **Logistics Health** — Malacca severity, Hormuz daily "
+        "transits (80→20), Panama Neopanamax slot ($1.5M→$4.0M).\n"
+        "3. **Physical Buffers** — Helium boil-off ramp (0→48 days), "
+        "EU ammonia / CO2 byproduct breach, OECD commercial oil "
+        "inventories vs the 842 MB operational minimum.\n\n"
+        "Each metric is mapped to a 0–100 health score; the cluster "
+        "average ignores any inputs that are currently unavailable."
+    )
+
+# Status strip + extended-blockade banner sit *under* the GRS so the
+# composite score gets first read.
 now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 intel_status = (
     '<span style="color:#00ffd1;">ARMED</span>'
@@ -2016,38 +2849,6 @@ st.markdown(
     'Base Case (60%) and Tail Risk (40%).</div>',
     unsafe_allow_html=True,
 )
-
-# ---------- DATA FETCH (consolidated; runs before any rendering) ----------
-# All upstream data is fetched once here so the Strategic Outlook,
-# Commodity Telemetry, Equity Proxy Radar, Logistics & Inputs Intel,
-# Probability Matrix, and Threshold Monitor all read from the same
-# 4-hour-cached snapshot. Caching is on each individual fetch
-# function (@st.cache_data ttl=14400), so subsequent reruns are free.
-with st.spinner("Pulling live commodity feed..."):
-    prices = {name: fetch_price(tk) for name, tk in TICKERS.items()}
-
-with st.spinner("Pulling equity proxy snapshots..."):
-    equity_snapshots = {
-        key: fetch_equity_snapshot(tk) for key, tk in EQUITY_TICKERS.items()
-    }
-equity_changes = {
-    key: snap.get("pct_change") for key, snap in equity_snapshots.items()
-}
-
-intel_data = {}
-intel_meta = {"fetched_at": None, "error": None, "raw": None}
-if api_key:
-    with st.spinner("Querying Perplexity sonar-pro for logistics intel..."):
-        intel_result = fetch_perplexity_intel(api_key)
-    intel_meta["fetched_at"] = intel_result.get("fetched_at")
-    intel_meta["error"] = intel_result.get("error")
-    intel_meta["raw"] = intel_result.get("raw")
-    intel_data = intel_result.get("data") or {}
-else:
-    intel_meta["error"] = "Perplexity intel paused — no API key."
-
-# Compute scenario probabilities from the consolidated snapshot.
-adjusted = adjust_probabilities(prices, intel_data, equity_changes)
 
 # ---------- STRATEGIC OUTLOOK (lead scenario, top of page) ----------
 st.markdown(
@@ -2080,14 +2881,17 @@ EQUITY_TIER_GLYPH = {
 }
 
 
-def card_equity_html(ticker_key, snapshot):
-    """Equity proxy card. WARNING and CRITICAL tiers (|daily move| >= 5%
-    and >= 12%) both raise the High-Alert breach state — red border,
-    soft red glow, red delta pill. NOMINAL stays plain.
+def card_equity_html(ticker_key, snapshot, sparkline_series=None):
+    """Equity proxy card. CRITICAL (|daily move| >= 12%) raises the
+    pulsing red glow, WARNING (>= 5%) raises the static amber glow,
+    NOMINAL stays plain.
+
+    `sparkline_series` (v13) — optional 7-day price series. When
+    provided, renders an inline SVG sparkline next to the headline
+    price (used for WDC).
 
     Each card carries a small italic 'why it matters' footer sourced
-    from EQUITY_PROXY_META, explaining the strategic linkage between
-    the equity move and the underlying physical-commodity risk."""
+    from EQUITY_PROXY_META."""
     meta = EQUITY_PROXY_META[ticker_key]
     label_safe = html.escape(meta["name"])
     proxy_safe = html.escape(meta["proxy_for"])
@@ -2112,13 +2916,35 @@ def card_equity_html(ticker_key, snapshot):
             f'</div>'
         )
 
-    is_breach = sev in ("warning", "critical")
-    card_class = (
-        "intel-card intel-card-breached" if is_breach else "intel-card"
-    )
+    is_breach = sev == "critical"
+    is_warn = sev == "warning"
+    if is_breach:
+        card_class = "intel-card intel-card-breached"
+    elif is_warn:
+        card_class = "intel-card intel-card-warning"
+    else:
+        card_class = "intel-card"
     glyph = EQUITY_TIER_GLYPH.get(sev or "nominal", "●")
     tier_label = (sev or "nominal").upper()
     price_str = f"${price:,.2f}" if price is not None else "—"
+
+    spark_color = sparkline_color_for_breach(is_breach, is_warn)
+    sparkline_html = (
+        render_sparkline_svg(sparkline_series, color=spark_color)
+        if sparkline_series else ""
+    )
+    if sparkline_html:
+        value_block = (
+            f'<div class="sparkline-row">'
+            f'<div class="intel-card-value">{price_str}</div>'
+            f'{sparkline_html}'
+            f'<span class="sparkline-label">7D</span>'
+            f'</div>'
+        )
+    else:
+        value_block = (
+            f'<div class="intel-card-value">{price_str}</div>'
+        )
 
     if change is None:
         delta_html = (
@@ -2127,7 +2953,10 @@ def card_equity_html(ticker_key, snapshot):
         )
     else:
         change_str = f"{'+' if change >= 0 else ''}{change:.2f}%"
-        delta_class = "delta-bear" if is_breach else "delta-flat"
+        if is_breach or is_warn:
+            delta_class = "delta-bear"
+        else:
+            delta_class = "delta-flat"
         delta_html = (
             f'<div class="intel-card-delta {delta_class}">'
             f'{glyph} {tier_label} &nbsp;·&nbsp; {change_str} '
@@ -2136,7 +2965,7 @@ def card_equity_html(ticker_key, snapshot):
     return (
         f'<div class="{card_class}">'
         f'<div class="intel-card-label">{label_safe}</div>'
-        f'<div class="intel-card-value">{price_str}</div>'
+        f'{value_block}'
         f'{delta_html}'
         f'{context_html}'
         f'</div>'
@@ -2227,12 +3056,20 @@ with col1:
         '<div class="col-section-title">◆ Commodity Telemetry</div>',
         unsafe_allow_html=True,
     )
+    # v13 — Brent and Gold each carry a 7-day sparkline. Brent uses
+    # an additional WARNING tier (>$115 but <=$130) so the static
+    # amber glow lights up before the pulsing critical glow does.
+    _brent_warn = (brent_v is not None and 115 < brent_v <= 130) and \
+                  not brent_breach
+    _gold_warn = (gold_v is not None and 4400 < gold_v <= 4600)
     commodity_cards = [
         card_numeric_html(
             "BRENT CRUDE  (BZ=F)", brent_v, BASELINE["Brent"],
             "$", True, fmt="{:,.2f}", delta_decimals=2,
             use_baseline_fallback=False,
             breach=brent_breach,
+            warning=_brent_warn,
+            sparkline_series=sparkline_series.get("Brent"),
         ),
         card_numeric_html(
             "TTF GAS  (TTF=F)", ttf_v, BASELINE["TTF"],
@@ -2245,6 +3082,8 @@ with col1:
             "$", False, fmt="{:,.2f}", delta_decimals=2,
             use_baseline_fallback=False,
             breach=gold_v is not None and gold_v > 4600,
+            warning=_gold_warn,
+            sparkline_series=sparkline_series.get("Gold"),
         ),
         card_numeric_html(
             "SILVER  (SI=F)", silver_v, BASELINE["Silver"],
@@ -2271,8 +3110,12 @@ with col1:
         '</div>',
         unsafe_allow_html=True,
     )
+    # v13 — WDC carries a 7-day sparkline as the AI-storage proxy.
     equity_cards = [
-        card_equity_html(key, equity_snapshots[key])
+        card_equity_html(
+            key, equity_snapshots[key],
+            sparkline_series=sparkline_series.get(key),
+        )
         for key in EQUITY_TICKERS
     ]
     st.markdown(
@@ -2491,59 +3334,50 @@ with col2:
             unsafe_allow_html=True,
         )
 
-    # ----- v12.1 §3: Systemic Cascade Map (Energy → Medical) -----
-    # Visual chain of physical dependencies: natural gas drives
-    # ammonia; ammonia carries food-grade CO2 as byproduct; that CO2
-    # is what carbonates beverages, packs meat, and supplies medical
-    # gas. When EU ammonia capacity < 40%, the CO2 and Meat/Medical
-    # nodes flip RED to mark the active downstream collapse.
-    _cascade_red_class = "cascade-red" if CO2_BYPRODUCT_BREACH else ""
+    # ----- v13: Systemic Cascade Map (Mermaid flowchart) -----
+    # Streamlit renders each call as its own DOM container, so we
+    # don't try to wrap the title + iframe + trigger note in a single
+    # div. Instead, each part is styled independently to read as a
+    # unified panel. Mermaid runs inside an iframe via
+    # st.components.v1.html so the spec'd
+    # `fill:#ff4b4b,stroke:#fff,stroke-width:2px` styling on the CO2
+    # and Medical Gas nodes is honoured exactly when EU ammonia < 40%.
+    st.markdown(
+        '<div class="cascade-container" '
+        'style="padding-bottom:0.6rem;margin-bottom:0;">'
+        '<div class="col-section-title" '
+        'style="margin:0 0 0.4rem 0;border:none;padding:0;">'
+        '◆ Systemic Cascade: Energy to Medical</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    render_mermaid_cascade(CO2_BYPRODUCT_BREACH)
     if CO2_BYPRODUCT_BREACH:
-        _cascade_note = (
-            f'<div class="cascade-trigger-note cascade-active">'
+        st.markdown(
+            f'<div class="cascade-container cascade-trigger-note '
+            f'cascade-active" style="margin-top:0;'
+            f'padding:0.85rem 1.1rem;font-style:normal;">'
             f'<strong style="color:#fca5a5;">▼ CASCADE ACTIVE</strong> '
             f'— EU ammonia at {EUROPEAN_AMMONIA_CAPACITY_PCT:.0f}% '
             f'(below {EUROPEAN_AMMONIA_THRESHOLD_PCT:.0f}% threshold). '
             f'Food-grade CO2 byproduct is exhausted; downstream nodes '
             f'(meat shelf-life, beverage carbonation, MRI cryogenics) '
             f'all degrade in parallel.'
-            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
         )
     else:
-        _cascade_note = (
-            f'<div class="cascade-trigger-note">'
+        st.markdown(
+            f'<div class="cascade-container cascade-trigger-note" '
+            f'style="margin-top:0;padding:0.85rem 1.1rem;'
+            f'font-style:normal;">'
             f'EU ammonia capacity at {EUROPEAN_AMMONIA_CAPACITY_PCT:.0f}% '
             f'(threshold {EUROPEAN_AMMONIA_THRESHOLD_PCT:.0f}%). '
             f'Cascade nodes nominal — food-grade CO2 byproduct supply '
             f'stable.'
-            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
         )
-    st.markdown(
-        f'<div class="cascade-container">'
-        f'<div class="col-section-title" '
-        f'style="margin:0 0 0.35rem 0;border:none;padding:0;">'
-        f'◆ Systemic Cascade: Energy to Medical</div>'
-        f'<div class="cascade-flow">'
-        f'<div class="cascade-node cascade-source">'
-        f'<div class="cascade-node-title">Source</div>'
-        f'Energy<br>(Natural Gas)</div>'
-        f'<div class="cascade-arrow">▶</div>'
-        f'<div class="cascade-node cascade-mid">'
-        f'<div class="cascade-node-title">Stage 2</div>'
-        f'Ammonia<br>Production</div>'
-        f'<div class="cascade-arrow">▶</div>'
-        f'<div class="cascade-node cascade-mid {_cascade_red_class}">'
-        f'<div class="cascade-node-title">Byproduct</div>'
-        f'CO₂<br>Byproduct</div>'
-        f'<div class="cascade-arrow">▶</div>'
-        f'<div class="cascade-node cascade-sink {_cascade_red_class}">'
-        f'<div class="cascade-node-title">Endpoint</div>'
-        f'Meat /<br>Medical Gas</div>'
-        f'</div>'
-        f'{_cascade_note}'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
 
 # ============================================================
 # COLUMN 3 — Threshold Monitor & Scenario Probability
@@ -2851,12 +3685,19 @@ with st.expander(header, expanded=len(actions) > 0):
         )
     else:
         for a in actions:
-            css_class = "alert-critical" if a["level"] == "critical" else "alert-warn"
+            css_class = (
+                "alert-critical" if a["level"] == "critical"
+                else "alert-warn"
+            )
             tag = "CRITICAL" if a["level"] == "critical" else "ELEVATED"
+            # v13 — iconography on each playbook line so the eye can
+            # immediately separate the business action from the
+            # household action.
             st.markdown(
-                f'<div class="{css_class}"><b>[{tag}]  {a["trigger"]}</b><br>'
-                f'<b>Business:</b> {a["business"]}<br>'
-                f'<b>Household:</b> {a["household"]}</div>',
+                f'<div class="{css_class}">'
+                f'<b>[{tag}]  {a["trigger"]}</b><br>'
+                f'<b>🏢 Business:</b> {a["business"]}<br>'
+                f'<b>🏠 Household:</b> {a["household"]}</div>',
                 unsafe_allow_html=True,
             )
 
