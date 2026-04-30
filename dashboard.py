@@ -3340,19 +3340,33 @@ def apply_realfeed_overlays(intel_data, intel_meta, prices):
     Both functions mutate intel_data in place; intel_meta is updated
     so the per-metric provenance reflects the real-feed source. Live
     LLM data wins over derived approximations (jet fuel only fills
-    when LLM returned None)."""
+    when LLM returned None).
+
+    Source-Dump support — when an overlay fires, the original
+    Perplexity meta is preserved under a `pre_overlay` sub-key on
+    the new meta record. This lets _build_source_dump distinguish
+    "we shipped a yfinance value" from "we shipped a Perplexity
+    value", which is the canonical bug-hunt question for the AI
+    auditor."""
+    metric_meta = intel_meta.setdefault("metric_meta", {})
+
     _urea_live = fetch_urea_yfinance()
     if _urea_live is not None:
+        _pre_urea = metric_meta.get("urea_spot_price_ton") or {}
         intel_data["urea_spot_price_ton"] = _urea_live
-        intel_meta.setdefault("metric_meta", {})[
-            "urea_spot_price_ton"
-        ] = {
+        metric_meta["urea_spot_price_ton"] = {
             "value": _urea_live,
             "fetched_at":
                 datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "error": None,
             "source_hint": "yfinance UFV=F (CME urea futures)",
             "raw": None,
+            "pre_overlay": {
+                "value": _pre_urea.get("value"),
+                "fetched_at": _pre_urea.get("fetched_at"),
+                "source_hint": _pre_urea.get("source_hint"),
+                "error": _pre_urea.get("error"),
+            },
         }
 
     _brent = prices.get("Brent")
@@ -3361,16 +3375,21 @@ def apply_realfeed_overlays(intel_data, intel_meta, prices):
         _jet_derived is not None
         and intel_data.get("jet_fuel_price_ton") is None
     ):
+        _pre_jet = metric_meta.get("jet_fuel_price_ton") or {}
         intel_data["jet_fuel_price_ton"] = _jet_derived
-        intel_meta.setdefault("metric_meta", {})[
-            "jet_fuel_price_ton"
-        ] = {
+        metric_meta["jet_fuel_price_ton"] = {
             "value": _jet_derived,
             "fetched_at":
                 datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "error": None,
             "source_hint": _jet_tag,
             "raw": None,
+            "pre_overlay": {
+                "value": _pre_jet.get("value"),
+                "fetched_at": _pre_jet.get("fetched_at"),
+                "source_hint": _pre_jet.get("source_hint"),
+                "error": _pre_jet.get("error"),
+            },
         }
 
 
@@ -4407,6 +4426,447 @@ def card_status_html(label, value_text, value_color, detail,
         f'{caption_html}'
         f'</div>'
     )
+
+
+# ============================================================
+# Source Dump — full provenance ledger
+# ============================================================
+# Consolidates everything in memory after the data fetch + overlay
+# layers + editorial layer + engine output into a single auditable
+# dict. No new network calls. Designed so a downstream AI can spot
+# bugs like "card claims live data but Perplexity returned null"
+# just by reading the dump — without re-fetching.
+
+def _classify_intel_source(metric_key, intel_data, intel_meta,
+                           editorial_log):
+    """Decide which `source_of_record` label applies to a given
+    metric. The classification is a strict precedence ladder:
+
+      1. editorial_override   — apply_editorial_layer set the value.
+      2. yfinance_overlay     — apply_realfeed_overlays' urea path.
+      3. brent_derived        — apply_realfeed_overlays' jet path.
+      4. perplexity_live      — Perplexity returned a non-null value.
+      5. stale_baseline_fallback — value is None but we have an
+                                  INTEL_BASELINE entry (card renders
+                                  STALE per Fix C-2).
+      6. no_data              — no live read and no baseline."""
+    for entry in editorial_log.get("applied", []):
+        if entry["key"] == metric_key:
+            return "editorial_override"
+    meta = (intel_meta.get("metric_meta") or {}).get(metric_key) or {}
+    if "pre_overlay" in meta:
+        hint = (meta.get("source_hint") or "").lower()
+        if "yfinance" in hint or "ufv=f" in hint:
+            return "yfinance_overlay"
+        if "derived" in hint:
+            return "brent_derived"
+        return "yfinance_overlay"  # default for any overlay
+    if intel_data.get(metric_key) is not None:
+        return "perplexity_live"
+    if metric_key in INTEL_BASELINE:
+        return "stale_baseline_fallback"
+    return "no_data"
+
+
+def _perplexity_raw_value(metric_key, intel_meta, editorial_log):
+    """Return what Perplexity LITERALLY returned for this metric
+    before any overlay or editorial override mutated it.
+
+    Resolution order:
+      - if real-feed overlay fired, the original meta is preserved
+        under meta["pre_overlay"]["value"]
+      - else if editorial override fired, the editorial_log's
+        applied entry has `before` = post-fetch value (which is
+        the Perplexity value when no overlay also ran)
+      - else the meta's current `value` IS the raw value"""
+    meta = (intel_meta.get("metric_meta") or {}).get(metric_key) or {}
+    if "pre_overlay" in meta:
+        return meta["pre_overlay"].get("value")
+    for entry in editorial_log.get("applied", []):
+        if entry["key"] == metric_key:
+            return entry.get("before")
+    return meta.get("value")
+
+
+def _editorial_for_key(key, editorial_log):
+    """Return the full applied-override dict for this key, or None
+    if no override is active."""
+    for entry in editorial_log.get("applied", []):
+        if entry["key"] == key:
+            return entry
+    return None
+
+
+def _build_source_dump(prices, intel_data, intel_meta, editorial_log,
+                       editorial_facts_log, grs, adjusted, actions,
+                       intel_grade, live_count, total_metrics,
+                       api_key_configured, sparkline_series=None):
+    """Pure function. Consolidates the in-memory state into a dict
+    for the Source Dump panel. No network calls, no globals beyond
+    read-only constants. Returns a dict; callers format it as
+    Markdown or JSON."""
+    sparkline_series = sparkline_series or {}
+
+    # ----- 1. METADATA -----
+    metadata = {
+        "dashboard_version": (
+            "v17 — Fix 1+2+3+4+5+A+B + Source Dump"
+        ),
+        "generated_at":
+            datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "intel_grade": intel_grade,
+        "intel_grade_fraction":
+            f"{live_count}/{total_metrics} live",
+        "live_count": live_count,
+        "total_metrics": total_metrics,
+        "api_key_configured": bool(api_key_configured),
+    }
+
+    # ----- 2. COMMODITY PRICES (yfinance) -----
+    commodity_prices = {}
+    for label, ticker in TICKERS.items():
+        live_value = prices.get(label)
+        baseline = BASELINE.get(label)
+        delta_pct = None
+        if (
+            live_value is not None and baseline
+            and baseline != 0
+        ):
+            delta_pct = round(
+                (live_value - baseline) / baseline * 100.0, 2
+            )
+        override_entry = _editorial_for_key(label, editorial_log)
+        source = "yfinance"
+        if override_entry is not None:
+            source = "editorial_override"
+        commodity_prices[ticker] = {
+            "ticker_symbol": ticker,
+            "label": label,
+            "current_value": live_value,
+            "baseline_ref": baseline,
+            "delta_vs_baseline_pct": delta_pct,
+            "source": source,
+            "fetched_at": "live cache 4h TTL",
+            "sparkline_7d": sparkline_series.get(label) or [],
+            "override_active": override_entry is not None,
+            "override": override_entry,
+        }
+
+    # ----- 3. INTEL METRICS (Perplexity fan-out) -----
+    intel_metrics_dump = {}
+    for key in INTEL_METRICS:
+        meta = (intel_meta.get("metric_meta") or {}).get(key) or {}
+        displayed = intel_data.get(key)
+        if displayed is None and key in INTEL_BASELINE:
+            displayed_for_card = INTEL_BASELINE[key]
+            stale = True
+        else:
+            displayed_for_card = displayed
+            stale = False
+        source_of_record = _classify_intel_source(
+            key, intel_data, intel_meta, editorial_log,
+        )
+        raw_perplexity = _perplexity_raw_value(
+            key, intel_meta, editorial_log,
+        )
+        override_entry = _editorial_for_key(key, editorial_log)
+        intel_metrics_dump[key] = {
+            "metric_key": key,
+            "displayed_value": displayed_for_card,
+            "stale_baseline_used": stale,
+            "source_of_record": source_of_record,
+            "fetched_at": meta.get("fetched_at"),
+            "primary_source": meta.get("source_hint"),
+            "perplexity_raw_value": raw_perplexity,
+            "perplexity_error": meta.get("error"),
+            "editorial_override": override_entry,
+            "expected_type":
+                INTEL_METRICS[key].get("expected_type"),
+            "primary_sources_queried":
+                INTEL_METRICS[key].get("primary_sources"),
+        }
+
+    # ----- 4. EDITORIAL LAYER -----
+    editorial_layer = {
+        "overrides": editorial_log,
+        "facts": editorial_facts_log,
+    }
+
+    # ----- 5. PHYSICAL-LOGIC GATES -----
+    helium_live_signal = (
+        intel_data.get("helium_spot_price_mcf")
+    )
+    helium_days = helium_days_elapsed()
+    physical_gates = {
+        "helium_exhausted": {
+            "value": helium_exhausted(),
+            "days_elapsed_since_qatar_fm": helium_days,
+            "boil_off_threshold_days": HELIUM_BOIL_OFF_DAYS,
+            "live_signal_value": helium_live_signal,
+            "live_signal_unit": "USD per Mcf",
+            "source": (
+                "live signal overrides date math (live < $1000)"
+                if helium_live_signal is not None
+                and helium_live_signal < 1000
+                else "date math (no contradicting live signal)"
+            ),
+        },
+        "oecd_inventory_breach": {
+            "value": OECD_INVENTORY_BREACH,
+            "operational_minimum_mb": OECD_INVENTORY_OPERATIONAL_MIN_MB,
+            "source": _gate_source(
+                "oecd_inventory_below_min", editorial_facts_log,
+            ),
+        },
+        "co2_byproduct_breach": {
+            "value": CO2_BYPRODUCT_BREACH,
+            "european_ammonia_capacity_pct":
+                EUROPEAN_AMMONIA_CAPACITY_PCT,
+            "european_ammonia_threshold_pct":
+                EUROPEAN_AMMONIA_THRESHOLD_PCT,
+            "source": _gate_source(
+                "eu_ammonia_capacity_pct", editorial_facts_log,
+            ),
+        },
+        "european_ammonia_capacity_pct": {
+            "value": EUROPEAN_AMMONIA_CAPACITY_PCT,
+            "source": _gate_source(
+                "eu_ammonia_capacity_pct", editorial_facts_log,
+            ),
+        },
+    }
+
+    # ----- 6. ENGINE OUTPUT -----
+    drift = sum(
+        abs(adjusted.get(k, 0.0) - BASE_PROBS.get(k, 0.0))
+        for k in BASE_PROBS
+    ) / 2.0 if adjusted else 0.0
+    playbook = []
+    for a in (actions or []):
+        playbook.append({
+            "level": a.get("level"),
+            "trigger": a.get("trigger"),
+            "business": a.get("business"),
+            "household": a.get("household"),
+        })
+    engine_output = {
+        "grs": grs,
+        "scenario_probabilities": adjusted,
+        "scenario_baseline": dict(BASE_PROBS),
+        "drift_vs_baseline_pts": round(drift, 2),
+        "playbook_triggers": playbook,
+    }
+
+    # ----- 7. SOURCE URL MANIFEST (reverse-mapped) -----
+    url_manifest = {}
+    for caption_key, url in SOURCE_URLS.items():
+        url_manifest.setdefault(url, []).append(caption_key)
+    # Stable ordering for reproducibility.
+    for url in url_manifest:
+        url_manifest[url] = sorted(url_manifest[url])
+
+    return {
+        "metadata": metadata,
+        "commodity_prices": commodity_prices,
+        "intel_metrics": intel_metrics_dump,
+        "editorial_layer": editorial_layer,
+        "physical_logic_gates": physical_gates,
+        "engine_output": engine_output,
+        "source_urls": url_manifest,
+    }
+
+
+def _gate_source(fact_key, facts_log):
+    """Helper: classify a physical-logic gate's source by looking
+    in the editorial-facts log."""
+    if not facts_log:
+        return "constant (no facts log)"
+    for f in facts_log.get("applied", []):
+        if f.get("key") == fact_key:
+            return (
+                f"editorial fact (set {f.get('set_by')}, expires "
+                f"{f.get('expires_on')})"
+            )
+    for f in facts_log.get("expired", []):
+        if f.get("key") == fact_key:
+            return (
+                f"expired editorial fact (was: "
+                f"expires {f.get('expired_on')}); defaulted"
+            )
+    return "constant"
+
+
+def _format_source_dump_json(dump):
+    """Pretty JSON for the AI-audit tab. Single st.code block can
+    be copied with the Streamlit one-click clipboard icon."""
+    return json.dumps(dump, indent=2, default=str)
+
+
+def _format_source_dump_markdown(dump):
+    """Render the same dump as readable Markdown. Editorial
+    overrides 🟠, stale ⚪, no-data ⚫."""
+    md = []
+    meta = dump.get("metadata", {})
+    md.append("## 📋 Source Dump — provenance ledger")
+    md.append("")
+    md.append(f"- **Generated:** `{meta.get('generated_at')}`")
+    md.append(
+        f"- **Intel Grade:** `{meta.get('intel_grade')} "
+        f"({meta.get('intel_grade_fraction')})`"
+    )
+    md.append(
+        f"- **API key configured:** "
+        f"`{meta.get('api_key_configured')}`"
+    )
+    md.append(
+        f"- **Dashboard version:** "
+        f"`{meta.get('dashboard_version')}`"
+    )
+    md.append("")
+
+    md.append("### 1. Commodity Prices (yfinance)")
+    md.append("")
+    for ticker, row in dump.get("commodity_prices", {}).items():
+        flag = "🟠" if row.get("override_active") else ""
+        md.append(
+            f"- {flag} **{row['label']}** (`{ticker}`): "
+            f"`{row['current_value']}` "
+            f"(baseline `{row['baseline_ref']}`, "
+            f"Δ `{row['delta_vs_baseline_pct']}%`) "
+            f"— source: `{row['source']}`"
+        )
+        if row.get("override_active") and row.get("override"):
+            ov = row["override"]
+            md.append(
+                f"    - 🟠 **Editorial override:** "
+                f"value `{ov.get('after')}` (was "
+                f"`{ov.get('before')}`), set "
+                f"{ov.get('set_on')} by "
+                f"{ov.get('set_by')}, expires "
+                f"{ov.get('expires_on')}"
+            )
+            md.append(
+                f"    - Rationale: *{ov.get('rationale')}*"
+            )
+            md.append(
+                f"    - Source: {ov.get('primary_source')}"
+            )
+    md.append("")
+
+    md.append("### 2. Intel Metrics (Perplexity fan-out)")
+    md.append("")
+    for key, row in dump.get("intel_metrics", {}).items():
+        sor = row["source_of_record"]
+        if sor == "editorial_override":
+            flag = "🟠"
+        elif sor == "stale_baseline_fallback":
+            flag = "⚪"
+        elif sor == "no_data":
+            flag = "⚫"
+        elif sor in ("yfinance_overlay", "brent_derived"):
+            flag = "🟢"
+        else:
+            flag = "✅"
+        md.append(
+            f"- {flag} **{key}**: displayed "
+            f"`{row['displayed_value']}` — "
+            f"source `{sor}`"
+        )
+        md.append(
+            f"    - Perplexity raw value: "
+            f"`{row['perplexity_raw_value']}` · "
+            f"fetched_at: `{row['fetched_at']}`"
+        )
+        if row.get("perplexity_error"):
+            md.append(
+                f"    - Perplexity error: "
+                f"`{row['perplexity_error']}`"
+            )
+        md.append(
+            f"    - Primary sources queried: "
+            f"`{row.get('primary_sources_queried')}`"
+        )
+        if row.get("editorial_override"):
+            ov = row["editorial_override"]
+            md.append(
+                f"    - 🟠 **Override:** `{ov.get('after')}` "
+                f"(was `{ov.get('before')}`), expires "
+                f"{ov.get('expires_on')}"
+            )
+            md.append(
+                f"      Rationale: *{ov.get('rationale')}* · "
+                f"Source: {ov.get('primary_source')}"
+            )
+    md.append("")
+
+    md.append("### 3. Editorial Layer")
+    md.append("")
+    ov_log = dump.get("editorial_layer", {}).get("overrides", {})
+    md.append(
+        f"- **Active overrides:** "
+        f"{len(ov_log.get('applied', []))}"
+    )
+    md.append(
+        f"- **Expired overrides:** "
+        f"{len(ov_log.get('expired', []))}"
+    )
+    md.append(
+        f"- **Disagreeing with live data:** "
+        f"{len(ov_log.get('disagree', []))}"
+    )
+    fa_log = dump.get("editorial_layer", {}).get("facts", {})
+    md.append(
+        f"- **Active facts:** {len(fa_log.get('applied', []))}, "
+        f"**Expired:** {len(fa_log.get('expired', []))}"
+    )
+    md.append("")
+
+    md.append("### 4. Physical-Logic Gates")
+    md.append("")
+    for gname, gd in dump.get("physical_logic_gates", {}).items():
+        md.append(f"- **{gname}**: `{gd.get('value')}`")
+        md.append(f"    - Source: *{gd.get('source')}*")
+        for k, v in gd.items():
+            if k in ("value", "source"):
+                continue
+            md.append(f"    - {k}: `{v}`")
+    md.append("")
+
+    md.append("### 5. Engine Output")
+    md.append("")
+    eo = dump.get("engine_output", {})
+    md.append(f"- **GRS overall:** `{eo.get('grs', {}).get('overall')}`")
+    grs_d = eo.get("grs", {})
+    md.append(
+        f"    - Commodity: `{grs_d.get('commodity')}` · "
+        f"Logistics: `{grs_d.get('logistics')}` · "
+        f"Buffers: `{grs_d.get('buffers')}`"
+    )
+    md.append(
+        f"- **Scenario probabilities:** "
+        f"`{eo.get('scenario_probabilities')}`"
+    )
+    md.append(
+        f"- **Drift vs baseline:** "
+        f"`{eo.get('drift_vs_baseline_pts')} pts`"
+    )
+    md.append(
+        f"- **Active playbook triggers:** "
+        f"{len(eo.get('playbook_triggers', []))}"
+    )
+    for pt in eo.get("playbook_triggers", []):
+        md.append(
+            f"    - [{pt.get('level','').upper()}] "
+            f"{pt.get('trigger')}"
+        )
+    md.append("")
+
+    md.append("### 6. Source URL Manifest")
+    md.append("")
+    for url, keys in dump.get("source_urls", {}).items():
+        md.append(f"- **{url}** → `{keys}`")
+    md.append("")
+    return "\n".join(md)
 
 
 # ---------- API KEY: load from Streamlit secrets (read-only deploy) ----------
@@ -5953,6 +6413,42 @@ if api_key and intel_meta.get("raw"):
                 f"Fan-out: {_live_count}/{len(_meta)} metrics returned "
                 f"a non-null value. Cache TTL is 4 hours per metric."
             )
+
+# ---------- SOURCE DUMP — full provenance ledger ----------
+# Consolidates everything the dashboard knows about its own data
+# into one auditable block. The user can copy the JSON tab and
+# hand it to a downstream AI; the auditor can spot bugs like
+# "card claims live but Perplexity returned null and the derived
+# adapter ran" without re-fetching anything. No new network calls.
+with st.expander(
+    "📋 Source Dump — full provenance ledger (copy for AI audit)",
+    expanded=False,
+):
+    _src_dump = _build_source_dump(
+        prices=prices,
+        intel_data=intel_data,
+        intel_meta=intel_meta,
+        editorial_log=editorial_log,
+        editorial_facts_log=editorial_facts_log,
+        grs=grs,
+        adjusted=adjusted,
+        actions=actions,
+        intel_grade=_intel_grade,
+        live_count=_live_count,
+        total_metrics=_total_metrics,
+        api_key_configured=bool(api_key),
+        sparkline_series=sparkline_series,
+    )
+    _md_tab, _json_tab = st.tabs(
+        ["📄 Markdown view", "🤖 JSON view (for AI audit)"]
+    )
+    with _md_tab:
+        st.markdown(_format_source_dump_markdown(_src_dump))
+    with _json_tab:
+        st.code(
+            _format_source_dump_json(_src_dump),
+            language="json",
+        )
 
 st.markdown("&nbsp;", unsafe_allow_html=True)
 st.markdown(
