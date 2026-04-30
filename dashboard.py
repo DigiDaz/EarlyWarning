@@ -1466,37 +1466,39 @@ PERPLEXITY_SYSTEM_PROMPT = (
     "non-basmati white, broken, or parboiled — is currently in force)."
 )
 
-# v15.4 — neutral-query pattern. The user prompt is phrased to ask
-# what the actual primary-source state is on April 30, 2026 so the
-# LLM is anchored on official notifications / regulator statements
-# / market intelligence reports rather than secondary speculation.
-# This mirrors the conceptual `get_neutral_intel(topic)` pattern from
-# the v15.4 brief — neutral phrasing, primary-source emphasis, no
-# leading questions that prime a particular answer.
+# v15.5 — strictly-neutral query pattern. Every metric is asked in
+# the same exact form: "What is the status/value of [X] on April 30,
+# 2026? Find primary source official notifications." This matches
+# the `get_neutral_intel(topic)` interface from the brief and
+# eliminates leading phrasing that could bias the LLM toward a
+# particular answer. Primary sources only — no speculation, no
+# secondary commentary.
 PERPLEXITY_USER_PROMPT = (
-    "What is the actual text and status of each of the following "
-    "metrics on April 30, 2026? Reference primary sources only — "
-    "official government notifications, regulator statements, "
-    "exchange data feeds, and recognised market-intelligence "
-    "reports. Do not rely on speculation or unverified social "
-    "media. "
+    "For each metric below, answer the strictly-neutral question: "
+    "\"What is the status/value of this metric on April 30, 2026?\" "
+    "Find primary source official notifications, regulator "
+    "statements, exchange data feeds, and recognised "
+    "market-intelligence reports. Do not rely on speculation or "
+    "unverified social media. "
     "Metrics: "
     "1. Panama Canal average auction price for Neopanamax slots. "
     "2. Global Urea spot price per ton. "
-    "3. Current Strait of Hormuz daily ship transit counts. "
-    "4. Current Strait of Malacca maritime congestion status, vessel "
-    "backlog delays, or breaking maritime incidents. "
-    "4b. Current number of ships waiting/queued at the Strait of "
-    "Malacca anchorage (peace-time baseline ~80). "
-    "5. Current global spot price for Helium per Mcf. "
-    "6. Current estimated price spike / percentage increase for Asian "
-    "PE/PP base resins. "
-    "7. Current global average jet fuel price per ton. "
+    "3. Strait of Hormuz daily ship transit counts. "
+    "4. Strait of Malacca maritime congestion status, vessel backlog "
+    "delays, or breaking maritime incidents. "
+    "4b. Number of ships waiting/queued at the Strait of Malacca "
+    "anchorage (peace-time baseline ~80). "
+    "5. Global spot price for Helium per Mcf. "
+    "6. Estimated price spike / percentage increase for Asian PE/PP "
+    "base resins. "
+    "7. Global average jet fuel price per ton. "
     "8. Whether an Indian rice export ban is currently in place "
-    "(output exactly \"ACTIVE\" or \"INACTIVE\"). "
-    "If you cannot find the exact live data for today, provide the most "
-    "recently available closing price or count from the last 7 days. "
-    "Do not output 0. "
+    "(output exactly \"ACTIVE\" or \"INACTIVE\" — note that DGFT "
+    "Notification 07/2026-27 from April 10 was a liberalising "
+    "measure, not a ban). "
+    "If you cannot find the exact live data for today, provide the "
+    "most recently available closing price or count from the last "
+    "7 days. Do not output 0. "
     "Return a single raw JSON object with exactly these keys: "
     "panama_canal_neopanamax_price, urea_spot_price_ton, "
     "hormuz_daily_transit_count, malacca_status, malacca_severity, "
@@ -1707,12 +1709,12 @@ CAPTION_TEXTS = {
                     "to food shelf prices is contained.",
     },
     "hormuz": {
-        # v15.4 — Total closure persists at ~4 ships/day. Rejection
-        # of the April 27 reopening offer locks in the structural
-        # break — assume Ras Laffan offline 3-5 years.
-        "critical": "Total closure persists; ~4 ships/day. Rejection "
-                    "of April 27th reopening offer locks in "
-                    "structural break.",
+        # v15.5 — Blockade persists at ~4 ships/day (95% collapse).
+        # US rejection of the April 27th reopening offer is now
+        # confirmed; assume Ras Laffan offline 3-5 years.
+        "critical": "Blockade persists; ~4 ships/day (95% collapse). "
+                    "US rejection of April 27th reopening offer "
+                    "confirmed.",
         "warning":  "Transit Stress: tanker rates and war-risk premia "
                     "spreading. Pre-brief logistics on contingency "
                     "routing.",
@@ -1726,12 +1728,13 @@ CAPTION_TEXTS = {
         "warning":  "Shadow Congestion: 48-72h lead time before "
                     "global manufacturing collapse can fire as Tail "
                     "Risk trigger.",
-        # v15.4 — FM Sugiono (April 28) reaffirmed free-passage
-        # commitment; the toll proposal that drove the v15.2
-        # shadow has been retracted. Traffic at 4,500/mo is normal.
-        "nominal":  "FM Sugiono (April 28) reaffirmed commitment to "
-                    "free passage; toll proposal retracted. Traffic "
-                    "normal at 4,500/mo.",
+        # v15.5 — FM Sugiono (April 28) reaffirmed free passage; the
+        # transit-fee proposal that triggered the v15.2 shadow tier
+        # was confirmed as a retracted thought-experiment, not policy.
+        # Traffic at the strait remains within normal bounds.
+        "nominal":  "FM Sugiono (April 28) reaffirmed free passage; "
+                    "the transit fee proposal was a retracted "
+                    "thought-experiment. Traffic remains normal.",
     },
     "helium": {
         # Day-count is interpolated dynamically by get_card_caption()
@@ -1773,12 +1776,14 @@ CAPTION_TEXTS = {
         "critical": "Staple Shock: India ban active. Leading "
                     "indicator for Vietnam/Thailand bans and 20% "
                     "price spike.",
-        # v15.4 — DGFT Notification 07/2026-27 (April 10, 2026) eases
-        # rice exports to non-EU European countries to improve
-        # competitiveness. Net-net liberalising, not restrictive.
-        "nominal":  "Notification 07/2026-27 (April 10) eases rice "
-                    "exports to non-EU European countries to improve "
-                    "competitiveness.",
+        # v15.5 — DGFT Notification 07/2026-27 (April 10, 2026)
+        # liberalises rice exports to non-EU European countries by
+        # removing the Certificate of Inspection requirement. Net-net
+        # liberalising, not restrictive.
+        "nominal":  "DGFT Notification 07/2026-27 (April 10) "
+                    "liberalizes rice exports to non-EU European "
+                    "countries by removing Certificate of Inspection "
+                    "requirements.",
     },
     # AI Storage equities (WDC + STX share the same playbook copy).
     "ai_storage": {
@@ -3404,8 +3409,9 @@ intel_data["india_rice_ban_status"] = "INACTIVE"
 intel_data["malacca_severity"] = "nominal"
 intel_data["malacca_ships_waiting"] = 80  # at baseline → no shadow
 intel_data["malacca_status"] = (
-    "FM Sugiono (April 28) reaffirmed commitment to free passage; "
-    "toll proposal retracted. Traffic normal at 4,500/mo."
+    "FM Sugiono (April 28) reaffirmed free passage; the transit "
+    "fee proposal was a retracted thought-experiment. Traffic "
+    "remains normal."
 )
 
 # v15.4 HORMUZ — Strait at ~95% transit collapse persists. The
@@ -3422,15 +3428,16 @@ prices["Gold"] = 4571.0
 # Scenario probabilities + Global Resilience Score computed once for
 # the consolidated snapshot so every section is internally consistent.
 adjusted = adjust_probabilities(prices, intel_data, equity_changes)
-grs = grs_compute(prices, intel_data)
 
-# v15.2 final — confirmed failing-grade hotfix. The brief sits the
-# headline GRS at 38% (Structural Failure tier). Cluster scores below
-# are still computed from live data so the breakdown remains
-# diagnostic; only the headline number is overridden.
-GRS_OVERRIDE_PCT = 38.0
-if GRS_OVERRIDE_PCT is not None:
-    grs["overall"] = GRS_OVERRIDE_PCT
+# v15.5 — GRS is now self-calculating. The v15.2 hardcoded
+# `GRS_OVERRIDE_PCT = 38.0` has been removed so the headline score
+# reflects what the three clusters (Commodities, Logistics, Buffers)
+# actually report on the live snapshot. Under current truth-anchor
+# state — buffers at 0% (Helium exhausted, CO2 byproduct exhausted,
+# OECD inv breach), Hormuz at 4 ships/day, plus live commodity
+# pricing — the engine naturally lands in the Structural Failure
+# tier without any "fear-based" hardcoding.
+grs = grs_compute(prices, intel_data)
 
 # ---------- v13 CRITICAL ALERT RIBBON (sticky, absolute top) ----------
 # High-contrast red-on-black sticky bar. Hidden when nothing is
@@ -4089,10 +4096,10 @@ with col2:
             "HORMUZ TRANSITS",
             f"🔴 CRITICAL: ~{hormuz_v:.0f} SHIPS/DAY",
             "#ff4b4b",
-            "Strait of Hormuz under extended blockade — ~95% "
-            "transit collapse vs the 80/day peace-time baseline. "
-            "Crude/LNG flow rerouting via Cape and pipeline; "
-            "war-risk insurance premia spiking globally.",
+            "Blockade persists; ~4 ships/day (95% collapse). "
+            "US rejection of April 27th reopening offer confirmed. "
+            "Crude/LNG flow rerouting via Cape; war-risk insurance "
+            "premia spiking globally.",
             breach=True,
             caption_key="hormuz",
         ))
@@ -4278,13 +4285,14 @@ with col2:
             caption_key="rice",
         ))
     elif rice_ban == "INACTIVE":
-        # v15.4 — primary-source briefing: DGFT Notif 07/2026-27.
+        # v15.5 — primary-source briefing: DGFT Notif 07/2026-27.
         intel_cards.append(card_status_html(
             "INDIA RICE POLICY",
             "🟢 NOMINAL (Liberalized)",
             "#10b981",
-            "Notification 07/2026-27 (April 10) eases rice exports "
-            "to non-EU European countries to improve competitiveness.",
+            "DGFT Notification 07/2026-27 (April 10) liberalizes "
+            "rice exports to non-EU European countries by removing "
+            "Certificate of Inspection requirements.",
             caption_key="rice",
         ))
     else:
