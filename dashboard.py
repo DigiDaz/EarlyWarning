@@ -1173,6 +1173,32 @@ CUSTOM_CSS = """
         color: #9ca3af;
         border-top-color: rgba(156, 163, 175, 0.18);
     }
+
+    /* Fix 2b — per-card "LAST PULL" footer. Sits below the
+       caption block, separated by a thin top border. Single-line
+       (white-space: nowrap) so the source label and relative
+       time scan cleanly across all cards in a row. Muted grey
+       so it doesn't compete with the headline. */
+    .intel-card-source-footer {
+        margin-top: 0.55rem;
+        padding-top: 0.45rem;
+        border-top: 1px solid rgba(156, 163, 175, 0.14);
+        color: #9ca3af;
+        font-size: 0.72rem;
+        line-height: 1.3;
+        letter-spacing: 0.4px;
+        font-family: 'Courier New', monospace;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .intel-card-source-footer.source-editorial {
+        color: #fde68a;
+    }
+    .intel-card-source-footer.source-baseline {
+        color: #9ca3af;
+        font-style: italic;
+    }
     .intel-card-caption.caption-stale .caption-tag {
         background-color: #6b7280;
         color: #f3f4f6;
@@ -1433,7 +1459,13 @@ INTEL_BASELINE = {
     "urea_spot_price_ton": 320.0,
     "hormuz_daily_transit_count": 80.0,
     "helium_spot_price_mcf": 400.0,
-    "asian_pe_pp_resin_spike": 0.0,
+    # Fix 3 — resin metric reframed. The data key now carries the
+    # absolute Asia PP spot price in USD per metric tonne; the
+    # "spike percentage" is computed at render time so Perplexity
+    # can be asked for what trade press actually publishes.
+    # Late-2024 / early-2025 Asia PP traded around $0.90–1.05/kg
+    # (= $900–1050/tonne); $1,000 is the clean baseline.
+    "asian_pp_spot_price_ton": 1000.0,
     "jet_fuel_price_ton": 850.0,
 }
 
@@ -1708,16 +1740,23 @@ INTEL_METRICS = {
             "specialty gas trade press",
         ],
     },
-    "asian_pe_pp_resin_spike": {
+    "asian_pp_spot_price_ton": {
+        # Fix 3 — ask for the absolute Asia PP spot price (which
+        # trade press actually publishes) instead of a derived
+        # "spike percentage" (which they don't). The card's spike
+        # display is computed at render time from this absolute
+        # price vs the $1,000/tonne 2024-2025 baseline.
         "question":
-            "What is the current estimated price spike percentage "
-            "for Asian PE/PP base resins versus the stable "
-            "2024-2025 baseline? Return a percent number "
-            "(e.g. 25 means 25%).",
-        "expected_type": "percent",
-        "unit_hint": "percent above 2024-2025 baseline",
+            "What is the current Asian polypropylene (PP) spot "
+            "price in US dollars per metric tonne? Use Northeast "
+            "Asia / Southeast Asia FOB or CFR China. Provide a "
+            "primary citation from the last 7 days.",
+        "expected_type": "number",
+        "unit_hint": "USD per metric tonne (Asia PP spot)",
         "primary_sources": [
-            "ICIS", "S&P Global Platts", "Argus", "Reuters Commodities",
+            "ICIS", "S&P Global Platts", "Argus",
+            "Reuters Commodities", "IMARC monthly regional report",
+            "Trading Economics polypropylene CFD",
         ],
     },
     "jet_fuel_price_ton": {
@@ -1762,6 +1801,21 @@ PERPLEXITY_PER_METRIC_SYSTEM_PROMPT = (
 )
 
 
+# Fix 2a — module-level cache-miss timestamp tracker. Every cached
+# fetch function records the time it actually hit the network into
+# this dict (keyed by (kind, ticker)). Cache hits skip the function
+# body so the timestamp stays at the previous miss — which is
+# exactly what we want: "when was this value actually pulled".
+# Cleared on script reload, so it stays in sync with the cache.
+_FETCH_TIMESTAMPS = {}
+
+
+def _record_fetch(kind, ticker):
+    _FETCH_TIMESTAMPS[(kind, ticker)] = (
+        datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
+
+
 @st.cache_data(ttl=14400)
 def fetch_price(ticker: str) -> float | None:
     """
@@ -1773,6 +1827,7 @@ def fetch_price(ticker: str) -> float | None:
     major market sessions (Asia → Europe → US) instead of locking
     everyone to a single daily snapshot.
     """
+    _record_fetch("yfinance_price", ticker)
     try:
         data = yf.Ticker(ticker).history(period="2d", interval="1d")
         if data.empty:
@@ -1788,6 +1843,7 @@ def fetch_sparkline_series(ticker: str) -> list:
     rendering. Cached on the same 4-hour window as fetch_price /
     fetch_equity_snapshot so the trend is consistent with the headline
     number on every card."""
+    _record_fetch("yfinance_sparkline", ticker)
     try:
         data = yf.Ticker(ticker).history(period="14d", interval="1d")
         if data.empty:
@@ -1805,6 +1861,7 @@ def fetch_equity_snapshot(ticker: str) -> dict:
     guarantees we get at least two trading-day closes even after a
     long weekend or holiday. Cached 4h alongside fetch_price so the
     Equity Proxy Radar refreshes with each major market session."""
+    _record_fetch("yfinance_equity", ticker)
     out = {"price": None, "pct_change": None}
     try:
         data = yf.Ticker(ticker).history(period="5d", interval="1d")
@@ -1878,6 +1935,20 @@ def jet_spike_pct(jet_value):
     if not base:
         return None
     return (jet_value - base) / base * 100.0
+
+
+def pp_spike_pct(pp_price):
+    """Fix 3 — Asian PP spot price as % above the $1,000/tonne
+    2024-2025 baseline. None-safe. Used at render time and inside
+    adjust_probabilities / evaluate_playbook so the engine continues
+    to think in spike percentages while the data layer carries the
+    absolute price the trade press actually publishes."""
+    if pp_price is None:
+        return None
+    base = INTEL_BASELINE.get("asian_pp_spot_price_ton")
+    if not base:
+        return None
+    return (pp_price - base) / base * 100.0
 
 
 def hdd_stockout_days_remaining():
@@ -2330,18 +2401,77 @@ def grs_compute(prices: dict, intel: dict | None = None) -> dict:
     )
     logistics = _avg_or_none([malacca_h, hormuz_h, panama_h])
 
-    # Cluster 3 — Physical Buffers
-    if helium_exhausted():
+    # Cluster 3 — Physical Buffers (calibration v2 — gradient scoring)
+    #
+    # The previous binary 0/100 flips on each gate manufactured a
+    # 0% buffers reading the moment all three editorial facts were
+    # set TRUE — collapsing GRS by a full 33 points without
+    # measuring how strained things actually were. Replace with
+    # gradients that map "severely strained but not totally drained"
+    # onto a meaningful score.
+
+    # Helium — days-elapsed gradient.
+    #   day 0          → 100
+    #   day 48 (boil-off)→ 50
+    #   day 96 (full drain) → 0
+    # Live-spot recovery overlay floors helium_h at 60 when spot
+    # falls below $1,000/Mcf for two weeks; the supply has
+    # plausibly recovered and date math no longer dominates.
+    days = helium_days_elapsed()
+    boil_off = HELIUM_BOIL_OFF_DAYS  # 48
+    depletion = boil_off * 2          # 96 — full drain
+    if days <= 0:
+        helium_h = 100.0
+    elif days >= depletion:
         helium_h = 0.0
+    elif days <= boil_off:
+        helium_h = 100.0 - (days / boil_off) * 50.0
     else:
-        days = helium_days_elapsed()
-        # Pre-FM (negative or zero days) → 100. Approaching boil-off
-        # threshold → ramps to 0.
-        ratio = max(0.0, min(1.0, days / float(HELIUM_BOIL_OFF_DAYS)))
-        helium_h = (1.0 - ratio) * 100.0
-    co2_h = 0.0 if CO2_BYPRODUCT_BREACH else 100.0
+        past = days - boil_off
+        helium_h = 50.0 - (past / boil_off) * 50.0
+    live_spot = _LIVE_INTEL_DATA.get("helium_spot_price_mcf")
+    if live_spot is not None and live_spot < 1000:
+        helium_h = max(helium_h, 60.0)
+
+    # CO2 byproduct — capacity-vs-threshold gradient.
+    #   capacity   0%  → 0
+    #   capacity  40% (threshold) → 50
+    #   capacity 100%  → 100
+    cap = EUROPEAN_AMMONIA_CAPACITY_PCT
+    threshold = EUROPEAN_AMMONIA_THRESHOLD_PCT
+    if cap >= 100.0:
+        co2_h = 100.0
+    elif cap <= 0.0:
+        co2_h = 0.0
+    elif cap >= threshold:
+        span = 100.0 - threshold
+        co2_h = 50.0 + ((cap - threshold) / span) * 50.0 \
+            if span > 0 else 100.0
+    else:
+        co2_h = (cap / threshold) * 50.0 if threshold > 0 else 0.0
+
+    # OECD inventory — keep binary (no live MB number available),
+    # but reduce its weight in the cluster average so it cannot
+    # zero the cluster on its own.
     oecd_h = 0.0 if OECD_INVENTORY_BREACH else 100.0
-    buffers = _avg_or_none([helium_h, co2_h, oecd_h])
+
+    # Weighted cluster average. Helium and CO2 each get 40%
+    # because both are now data-grounded gradients; OECD gets
+    # 20% because it remains a binary editorial fact.
+    buffer_parts = [
+        (helium_h, 0.40),
+        (co2_h, 0.40),
+        (oecd_h, 0.20),
+    ]
+    cleaned = [(v, w) for v, w in buffer_parts if v is not None]
+    if cleaned:
+        total_w = sum(w for _, w in cleaned)
+        buffers = (
+            sum(v * w for v, w in cleaned) / total_w
+            if total_w > 0 else None
+        )
+    else:
+        buffers = None
 
     overall = _avg_or_none([commodity, logistics, buffers])
 
@@ -2640,6 +2770,88 @@ def render_mermaid_cascade(co2_breach: bool):
     st.components.v1.html(html_body, height=180, scrolling=False)
 
 
+def _relative_time(ts):
+    """Fix 2b — humanise an ISO-8601 string / date / datetime as
+    '14 min ago', '3h ago', '2 days ago'. Returns 'unknown' when
+    the input is None or unparseable. Date-only inputs (no time)
+    are treated as 00:00 UTC of that date so the math works."""
+    if ts is None:
+        return "unknown"
+    try:
+        if isinstance(ts, datetime):
+            target = ts
+        elif isinstance(ts, date):
+            target = datetime(ts.year, ts.month, ts.day)
+        elif isinstance(ts, str):
+            ts_clean = ts.strip()
+            if ts_clean.endswith("Z"):
+                ts_clean = ts_clean[:-1] + "+00:00"
+            try:
+                target = datetime.fromisoformat(ts_clean)
+            except ValueError:
+                # Date-only ISO string ("2026-04-28")
+                target = datetime.fromisoformat(ts_clean + "T00:00:00")
+            if target.tzinfo is not None:
+                target = target.replace(tzinfo=None)
+        else:
+            return "unknown"
+    except (ValueError, TypeError):
+        return "unknown"
+
+    delta_seconds = (datetime.utcnow() - target).total_seconds()
+    if delta_seconds < 0:
+        return "just now"
+    if delta_seconds < 60:
+        return f"{int(delta_seconds)}s ago"
+    minutes = delta_seconds // 60
+    if minutes < 60:
+        return f"{int(minutes)} min ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{int(hours)}h ago"
+    days_ = int(hours // 24)
+    if days_ < 365:
+        return f"{days_} day{'s' if days_ != 1 else ''} ago"
+    years = days_ // 365
+    return f"{years} year{'s' if years != 1 else ''} ago"
+
+
+def _format_source_footer(source_kind, timestamp_iso,
+                          editorial_set_on=None,
+                          last_live_fetch=None):
+    """Fix 2b — single-line per-card footer.
+
+    source_kind:
+      'MARKET'    → 'LAST PULL: <rel> · MARKET (yfinance)'
+      'INTEL'     → 'LAST PULL: <rel> · INTEL (perplexity)'
+      'EDITORIAL' → 'LAST PULL: <rel> · EDITORIAL (set <date>)'
+      'BASELINE'  → 'BASELINE (no live read since <last_live_fetch>)'
+
+    Returns the formatted string, or None when there is genuinely
+    no information to show (so the card builder skips the line)."""
+    if source_kind is None:
+        return None
+    if source_kind == "BASELINE":
+        when = last_live_fetch or "no successful fetch this session"
+        if isinstance(when, str) and "T" in when:
+            when = when.split("T")[0]
+        return f"BASELINE (no live read since {when})"
+    rel = _relative_time(timestamp_iso)
+    if source_kind == "EDITORIAL":
+        set_on_str = editorial_set_on or "unknown"
+        if isinstance(set_on_str, date) and not isinstance(set_on_str, datetime):
+            set_on_str = set_on_str.isoformat()
+        elif isinstance(set_on_str, str) and "T" in set_on_str:
+            set_on_str = set_on_str.split("T")[0]
+        return f"LAST PULL: {rel} · EDITORIAL (set {set_on_str})"
+    if source_kind == "MARKET":
+        return f"LAST PULL: {rel} · MARKET (yfinance)"
+    if source_kind == "INTEL":
+        return f"LAST PULL: {rel} · INTEL (perplexity)"
+    # Unknown kind — don't fabricate.
+    return None
+
+
 def _coerce_number(value):
     if isinstance(value, bool):
         return None
@@ -2802,7 +3014,7 @@ def fetch_perplexity_intel(api_key: str) -> dict:
         "hormuz_daily_transit_count",
         "malacca_ships_waiting",
         "helium_spot_price_mcf",
-        "asian_pe_pp_resin_spike",
+        "asian_pp_spot_price_ton",
         "jet_fuel_price_ton",
     )
     for key in numeric_keys:
@@ -3061,6 +3273,7 @@ def fetch_all_intel(api_key: str) -> dict:
 def fetch_urea_yfinance() -> float | None:
     """CME urea futures (UFV=F). Returns None if the ticker is not
     accessible — caller falls back to Perplexity."""
+    _record_fetch("yfinance_urea", "UFV=F")
     try:
         data = yf.Ticker("UFV=F").history(period="5d", interval="1d")
         if data.empty:
@@ -3590,12 +3803,15 @@ def adjust_probabilities(prices: dict, intel: dict | None = None,
         probs["Slow Normalization"] += 4
         probs["Tail Risk"] -= 4
 
-    resin = intel.get("asian_pe_pp_resin_spike")
-    if resin is not None and resin > 40:
+    # Fix 3 — engine still thinks in spike-percent terms; compute
+    # the spike from the absolute Asia PP spot price the data layer
+    # now carries.
+    resin_spike = pp_spike_pct(intel.get("asian_pp_spot_price_ton"))
+    if resin_spike is not None and resin_spike > 40:
         probs["Base Case"] += 5
         probs["Best Case"] -= 3
         probs["Slow Normalization"] -= 2
-    elif resin is not None and resin < 10:
+    elif resin_spike is not None and resin_spike < 10:
         # Resin spike at near-baseline — petrochemical input
         # pressure on packaging / medical BOMs has eased.
         probs["Slow Normalization"] += 3
@@ -3688,7 +3904,11 @@ def evaluate_playbook(prices: dict, intel: dict | None = None,
     hormuz = intel.get("hormuz_daily_transit_count")
     panama = intel.get("panama_canal_neopanamax_price")
     helium = intel.get("helium_spot_price_mcf")
-    resin = intel.get("asian_pe_pp_resin_spike")
+    # Fix 3 — resin reframed: data layer carries the absolute Asia
+    # PP spot price; the engine still cares about the spike % so we
+    # compute it here.
+    pp_price = intel.get("asian_pp_spot_price_ton")
+    resin = pp_spike_pct(pp_price)
     jet = intel.get("jet_fuel_price_ton")
     malacca_sev = intel.get("malacca_severity")
     malacca_status = intel.get("malacca_status") or "no detail returned"
@@ -4118,7 +4338,8 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
                       use_baseline_fallback=True, breach=False,
                       warning=False, sparkline_series=None,
                       caption_key=None, caption_fmt=None,
-                      last_fetched_at=None, source_hint=None):
+                      last_fetched_at=None, source_hint=None,
+                      source_footer=None, source_footer_kind=None):
     """Numeric card returning a single HTML string for the .intel-grid
     wrapper.
 
@@ -4224,6 +4445,18 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
                     f'{source_html}'
                     f'</div>'
                 )
+        # Stale path always emits a BASELINE footer line — auto-fill
+        # if the call site didn't pass one.
+        stale_footer_text = source_footer or _format_source_footer(
+            "BASELINE", None, last_live_fetch=last_fetched_at,
+        )
+        stale_footer_html = ""
+        if stale_footer_text:
+            stale_footer_html = (
+                f'<div class="intel-card-source-footer '
+                f'source-baseline">'
+                f'{html.escape(stale_footer_text)}</div>'
+            )
         return (
             f'<div class="intel-card intel-card-stale" '
             f'title="{title_attr}">'
@@ -4238,10 +4471,18 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
             f'<strong>Source:</strong> {source_str}'
             f'</div>'
             f'{stale_caption_html}'
+            f'{stale_footer_html}'
             f'</div>'
         )
 
     if value is None:
+        unavail_footer_html = ""
+        if source_footer:
+            unavail_footer_html = (
+                f'<div class="intel-card-source-footer '
+                f'source-{(source_footer_kind or "").lower()}">'
+                f'{html.escape(source_footer)}</div>'
+            )
         return (
             f'<div class="intel-card">'
             f'<div class="intel-card-label">{label_safe}</div>'
@@ -4249,6 +4490,7 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
             f'DATA UNAVAILABLE</div>'
             f'<div class="intel-card-delta">&nbsp;</div>'
             f'{caption_html}'
+            f'{unavail_footer_html}'
             f'</div>'
         )
 
@@ -4289,6 +4531,15 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
             f'{html.escape(value_display)}</div>'
         )
 
+    footer_html = ""
+    if source_footer:
+        kind_class = (source_footer_kind or "market").lower()
+        footer_html = (
+            f'<div class="intel-card-source-footer '
+            f'source-{kind_class}">'
+            f'{html.escape(source_footer)}</div>'
+        )
+
     return (
         f'<div class="{card_class}">'
         f'<div class="intel-card-label">{label_safe}</div>'
@@ -4296,6 +4547,7 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
         f'<div class="intel-card-delta {delta_class}">'
         f'{html.escape(delta_str)}</div>'
         f'{caption_html}'
+        f'{footer_html}'
         f'</div>'
     )
 
@@ -4303,7 +4555,8 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
 def card_status_html(label, value_text, value_color, detail,
                      is_baseline=False, breach=False, warning=False,
                      caption_key=None, caption_fmt=None,
-                     last_fetched_at=None, source_hint=None):
+                     last_fetched_at=None, source_hint=None,
+                     source_footer=None, source_footer_kind=None):
     """Qualitative card returning a single HTML string. value_text=None
     → DATA UNAVAILABLE (used only when no peace-time baseline applies).
 
@@ -4392,6 +4645,16 @@ def card_status_html(label, value_text, value_color, detail,
                     f'{source_html}'
                     f'</div>'
                 )
+        stale_footer_text = source_footer or _format_source_footer(
+            "BASELINE", None, last_live_fetch=last_fetched_at,
+        )
+        stale_footer_html = ""
+        if stale_footer_text:
+            stale_footer_html = (
+                f'<div class="intel-card-source-footer '
+                f'source-baseline">'
+                f'{html.escape(stale_footer_text)}</div>'
+            )
         return (
             f'<div class="intel-card intel-card-stale" '
             f'title="{title_attr}">'
@@ -4406,6 +4669,7 @@ def card_status_html(label, value_text, value_color, detail,
             f'{source_str or "n/a"}'
             f'</div>'
             f'{stale_caption_html}'
+            f'{stale_footer_html}'
             f'</div>'
         )
     color = html.escape(value_color or "#9ca3af")
@@ -4417,6 +4681,14 @@ def card_status_html(label, value_text, value_color, detail,
         style_attr = f' style="border-color: {color};"'
     else:
         style_attr = ""
+    footer_html = ""
+    if source_footer:
+        kind_class = (source_footer_kind or "intel").lower()
+        footer_html = (
+            f'<div class="intel-card-source-footer '
+            f'source-{kind_class}">'
+            f'{html.escape(source_footer)}</div>'
+        )
     return (
         f'<div class="{base_class}"{style_attr}>'
         f'<div class="intel-card-label">{label_safe}</div>'
@@ -4424,6 +4696,7 @@ def card_status_html(label, value_text, value_color, detail,
         f'● {html.escape(value_text)}{baseline_tag}</div>'
         f'<div class="{detail_class}">{detail_safe}</div>'
         f'{caption_html}'
+        f'{footer_html}'
         f'</div>'
     )
 
@@ -5340,7 +5613,8 @@ EQUITY_TIER_GLYPH = {
 
 
 def card_equity_html(ticker_key, snapshot, sparkline_series=None,
-                     caption_key=None):
+                     caption_key=None, source_footer=None,
+                     source_footer_kind=None):
     """Equity proxy card. CRITICAL (|daily move| >= 12%) raises the
     pulsing red glow, WARNING (>= 5%) raises the static amber glow,
     NOMINAL stays plain.
@@ -5368,6 +5642,15 @@ def card_equity_html(ticker_key, snapshot, sparkline_series=None,
     change = snapshot.get("pct_change")
     sev = equity_severity(change)
 
+    footer_html = ""
+    if source_footer:
+        kind_class = (source_footer_kind or "market").lower()
+        footer_html = (
+            f'<div class="intel-card-source-footer '
+            f'source-{kind_class}">'
+            f'{html.escape(source_footer)}</div>'
+        )
+
     if price is None and change is None:
         return (
             f'<div class="intel-card">'
@@ -5376,6 +5659,7 @@ def card_equity_html(ticker_key, snapshot, sparkline_series=None,
             f'DATA UNAVAILABLE</div>'
             f'<div class="intel-card-delta">proxy: {proxy_safe}</div>'
             f'{context_html}'
+            f'{footer_html}'
             f'</div>'
         )
 
@@ -5447,6 +5731,7 @@ def card_equity_html(ticker_key, snapshot, sparkline_series=None,
         f'{delta_html}'
         f'{context_html}'
         f'{caption_html}'
+        f'{footer_html}'
         f'</div>'
     )
 
@@ -5512,7 +5797,11 @@ panama_v = intel_data.get("panama_canal_neopanamax_price")
 urea_v = intel_data.get("urea_spot_price_ton")
 hormuz_v = intel_data.get("hormuz_daily_transit_count")
 helium_v = intel_data.get("helium_spot_price_mcf")
-resin_v = intel_data.get("asian_pe_pp_resin_spike")
+# Fix 3 — resin data layer now carries the absolute Asia PP price.
+# Compute the spike % at render time so the existing card UI
+# ("RESIN > 40%") keeps working with no other changes.
+pp_price_v = intel_data.get("asian_pp_spot_price_ton")
+resin_v = pp_spike_pct(pp_price_v)
 jet_v = intel_data.get("jet_fuel_price_ton")
 malacca_sev = intel_data.get("malacca_severity")
 malacca_status = intel_data.get("malacca_status")
@@ -5548,6 +5837,71 @@ with col1:
     _ttf_breach = ttf_v is not None and ttf_v > 80
     _silver_warn = (silver_v is not None and 60 < silver_v <= 75)
 
+    # Fix 2d — per-card "LAST PULL" footer routing.
+    # _market_footer: yfinance ticker → MARKET footer with the
+    #   actual cache fetch timestamp, OR EDITORIAL when an override
+    #   is in force for this label (e.g. Gold).
+    # _intel_footer: per-metric key → INTEL footer using the
+    #   intel_meta fetched_at, MARKET when an overlay populated
+    #   the value (yfinance UFV=F, Brent-derived), EDITORIAL when
+    #   apply_editorial_layer set the value, BASELINE when the
+    #   value is None and the card will render STALE.
+    def _market_footer(label, ticker):
+        for ov in editorial_log.get("applied", []):
+            if ov["key"] == label:
+                return (
+                    _format_source_footer(
+                        "EDITORIAL",
+                        timestamp_iso=ov.get("set_on"),
+                        editorial_set_on=ov.get("set_on"),
+                    ),
+                    "editorial",
+                )
+        ts = _FETCH_TIMESTAMPS.get(("yfinance_price", ticker))
+        return (_format_source_footer("MARKET", ts), "market")
+
+    def _intel_footer(metric_key):
+        for ov in editorial_log.get("applied", []):
+            if ov["key"] == metric_key:
+                return (
+                    _format_source_footer(
+                        "EDITORIAL",
+                        timestamp_iso=ov.get("set_on"),
+                        editorial_set_on=ov.get("set_on"),
+                    ),
+                    "editorial",
+                )
+        meta = (intel_meta.get("metric_meta") or {}).get(
+            metric_key
+        ) or {}
+        if meta.get("value") is None:
+            return (
+                _format_source_footer(
+                    "BASELINE", None,
+                    last_live_fetch=meta.get("fetched_at"),
+                ),
+                "baseline",
+            )
+        hint = (meta.get("source_hint") or "").lower()
+        if "yfinance" in hint or "ufv=f" in hint or "derived" in hint:
+            return (
+                _format_source_footer(
+                    "MARKET", meta.get("fetched_at"),
+                ),
+                "market",
+            )
+        return (
+            _format_source_footer(
+                "INTEL", meta.get("fetched_at"),
+            ),
+            "intel",
+        )
+
+    _brent_footer, _brent_footer_kind = _market_footer("Brent", "BZ=F")
+    _ttf_footer, _ttf_footer_kind = _market_footer("TTF", "TTF=F")
+    _gold_footer, _gold_footer_kind = _market_footer("Gold", "GC=F")
+    _silver_footer, _silver_footer_kind = _market_footer("Silver", "SI=F")
+
     commodity_cards = [
         card_numeric_html(
             "BRENT CRUDE  (BZ=F)", brent_v, BASELINE["Brent"],
@@ -5557,6 +5911,8 @@ with col1:
             warning=_brent_warn,
             sparkline_series=sparkline_series.get("Brent"),
             caption_key="brent",
+            source_footer=_brent_footer,
+            source_footer_kind=_brent_footer_kind,
         ),
         card_numeric_html(
             "TTF GAS  (TTF=F)", ttf_v, BASELINE["TTF"],
@@ -5566,6 +5922,8 @@ with col1:
             warning=_ttf_warn,
             sparkline_series=sparkline_series.get("TTF"),
             caption_key="ttf",
+            source_footer=_ttf_footer,
+            source_footer_kind=_ttf_footer_kind,
         ),
         card_numeric_html(
             "GOLD  (GC=F)", gold_v, BASELINE["Gold"],
@@ -5575,6 +5933,8 @@ with col1:
             warning=_gold_warn,
             sparkline_series=sparkline_series.get("Gold"),
             caption_key="gold",
+            source_footer=_gold_footer,
+            source_footer_kind=_gold_footer_kind,
         ),
         card_numeric_html(
             "SILVER  (SI=F)", silver_v, BASELINE["Silver"],
@@ -5584,6 +5944,8 @@ with col1:
             warning=_silver_warn,
             sparkline_series=sparkline_series.get("Silver"),
             caption_key="silver",
+            source_footer=_silver_footer,
+            source_footer_kind=_silver_footer_kind,
         ),
     ]
     st.markdown(
@@ -5615,14 +5977,21 @@ with col1:
         "WDC": "ai_storage",
         "STX": "ai_storage",
     }
-    equity_cards = [
-        card_equity_html(
+    def _equity_footer(equity_ticker_key):
+        ticker_symbol = EQUITY_TICKERS.get(equity_ticker_key)
+        ts = _FETCH_TIMESTAMPS.get(("yfinance_equity", ticker_symbol))
+        return _format_source_footer("MARKET", ts), "market"
+
+    equity_cards = []
+    for key in EQUITY_TICKERS:
+        eq_footer, eq_kind = _equity_footer(key)
+        equity_cards.append(card_equity_html(
             key, equity_snapshots[key],
             sparkline_series=sparkline_series.get(key),
             caption_key=_equity_caption_keys.get(key),
-        )
-        for key in EQUITY_TICKERS
-    ]
+            source_footer=eq_footer,
+            source_footer_kind=eq_kind,
+        ))
     st.markdown(
         '<div class="intel-grid">' + "".join(equity_cards) + '</div>',
         unsafe_allow_html=True,
@@ -5681,14 +6050,53 @@ with col2:
     # Fix C-2 — pull last_fetched_at + source_hint out of intel_meta
     # so the stale tooltip can surface real provenance for any card
     # that ends up rendering NO LIVE DATA.
+    # Fix 2d — also produce the per-card "LAST PULL" footer kwargs
+    # so every intel card carries a freshness line.
     def _meta_kwargs(metric_key):
         meta_record = (
             (intel_meta.get("metric_meta") or {}).get(metric_key)
             or {}
         )
+        # Routing for the footer label is the same logic the source
+        # dump uses for source_of_record — kept in sync here.
+        editorial_match = None
+        for ov in editorial_log.get("applied", []):
+            if ov["key"] == metric_key:
+                editorial_match = ov
+                break
+        if editorial_match is not None:
+            footer_text = _format_source_footer(
+                "EDITORIAL",
+                timestamp_iso=editorial_match.get("set_on"),
+                editorial_set_on=editorial_match.get("set_on"),
+            )
+            footer_kind = "editorial"
+        elif meta_record.get("value") is None:
+            footer_text = _format_source_footer(
+                "BASELINE", None,
+                last_live_fetch=meta_record.get("fetched_at"),
+            )
+            footer_kind = "baseline"
+        else:
+            hint = (meta_record.get("source_hint") or "").lower()
+            if (
+                "yfinance" in hint or "ufv=f" in hint
+                or "derived" in hint
+            ):
+                footer_text = _format_source_footer(
+                    "MARKET", meta_record.get("fetched_at"),
+                )
+                footer_kind = "market"
+            else:
+                footer_text = _format_source_footer(
+                    "INTEL", meta_record.get("fetched_at"),
+                )
+                footer_kind = "intel"
         return {
             "last_fetched_at": meta_record.get("fetched_at"),
             "source_hint": meta_record.get("source_hint"),
+            "source_footer": footer_text,
+            "source_footer_kind": footer_kind,
         }
 
     intel_cards.append(card_numeric_html(
@@ -5727,6 +6135,7 @@ with col2:
             "premia spiking globally.",
             breach=True,
             caption_key="hormuz",
+            **_meta_kwargs("hormuz_daily_transit_count"),
         ))
     else:
         intel_cards.append(card_numeric_html(
@@ -5737,6 +6146,7 @@ with col2:
             breach=_hormuz_breach,
             warning=_hormuz_warn,
             caption_key="hormuz",
+            **_meta_kwargs("hormuz_daily_transit_count"),
         ))
 
     # v12.1 §2: Malacca Shadow Indicator — the upgraded Malacca card.
@@ -5765,6 +6175,7 @@ with col2:
             malacca_status or "(no status text returned)",
             breach=True,
             caption_key="malacca",
+            **_meta_kwargs("malacca_severity"),
         ))
     elif _malacca_v154_nominal:
         intel_cards.append(card_status_html(
@@ -5773,6 +6184,7 @@ with col2:
             SEVERITY_COLORS["nominal"],
             malacca_status,
             caption_key="malacca",
+            **_meta_kwargs("malacca_severity"),
         ))
     elif shadow_active and malacca_sev != "elevated":
         # v15.2 — CONGESTION SHADOW now renders with the static amber
@@ -5802,6 +6214,7 @@ with col2:
             f"{ships_label}{delta_label}. {detail_text}",
             warning=True,
             caption_key="malacca",
+            **_meta_kwargs("malacca_severity"),
         ))
     elif malacca_sev is None and malacca_status is None:
         intel_cards.append(card_status_html(
@@ -5811,6 +6224,7 @@ with col2:
             MALACCA_BASELINE_STATUS,
             is_baseline=True,
             caption_key="malacca",
+            **_meta_kwargs("malacca_severity"),
         ))
     else:
         sev = malacca_sev or "nominal"
@@ -5821,6 +6235,7 @@ with col2:
             malacca_status or "(no status text returned)",
             breach=sev == "elevated",
             caption_key="malacca",
+            **_meta_kwargs("malacca_severity"),
         ))
 
     if helium_exhausted():
@@ -5839,6 +6254,7 @@ with col2:
                 "days_past": _days_past,
                 "boil_off": HELIUM_BOIL_OFF_DAYS,
             },
+            **_meta_kwargs("helium_spot_price_mcf"),
         ))
     else:
         _helium_breach = helium_v is not None and helium_v > 2000
@@ -5852,6 +6268,16 @@ with col2:
             **_meta_kwargs("helium_spot_price_mcf"),
         ))
 
+    # CO2 card is backed by the EUROPEAN_AMMONIA_CAPACITY_PCT editorial
+    # FACT (not an intel metric), so the footer reads its set_on date
+    # straight from EDITORIAL_FACTS rather than going through
+    # _meta_kwargs.
+    _co2_fact = EDITORIAL_FACTS.get("eu_ammonia_capacity_pct", {})
+    _co2_footer = _format_source_footer(
+        "EDITORIAL",
+        timestamp_iso=_co2_fact.get("set_on"),
+        editorial_set_on=_co2_fact.get("set_on"),
+    )
     if CO2_BYPRODUCT_BREACH:
         intel_cards.append(card_status_html(
             f"INDUSTRIAL CO2 BYPRODUCT (EU ammonia "
@@ -5862,6 +6288,8 @@ with col2:
             "Meat processing, soft drinks, and medical gas at risk.",
             breach=True,
             caption_key="co2",
+            source_footer=_co2_footer,
+            source_footer_kind="editorial",
         ))
     else:
         intel_cards.append(card_status_html(
@@ -5871,19 +6299,24 @@ with col2:
             "European ammonia capacity within nominal range; food-grade "
             "CO2 byproduct supply stable.",
             caption_key="co2",
+            source_footer=_co2_footer,
+            source_footer_kind="editorial",
         ))
 
     _resin_breach = resin_v is not None and resin_v > 40
     _resin_warn = resin_v is not None and 20 < resin_v <= 40
+    # Fix 3 — display the computed spike pct; baseline for the
+    # delta line is 0% (no spike). Source-meta routing reads from
+    # the new asian_pp_spot_price_ton key.
     intel_cards.append(card_numeric_html(
         "PE/PP RESIN SPIKE  (Asia)",
         resin_v,
-        INTEL_BASELINE["asian_pe_pp_resin_spike"],
+        0.0,
         "", True, fmt="{:.1f}", suffix="%", delta_decimals=1,
         breach=_resin_breach,
         warning=_resin_warn,
         caption_key="resin",
-        **_meta_kwargs("asian_pe_pp_resin_spike"),
+        **_meta_kwargs("asian_pp_spot_price_ton"),
     ))
     _jet_breach = jet_v is not None and jet_v > 1500
     _jet_warn = jet_v is not None and 1100 < jet_v <= 1500
@@ -5911,6 +6344,7 @@ with col2:
             "active.",
             breach=True,
             caption_key="rice",
+            **_meta_kwargs("india_rice_ban_status"),
         ))
     elif rice_ban == "INACTIVE":
         # v15.5 — primary-source briefing: DGFT Notif 07/2026-27.
@@ -5924,6 +6358,7 @@ with col2:
             "rice exports to non-EU European countries by removing "
             "Certificate of Inspection requirements.",
             caption_key="rice",
+            **_meta_kwargs("india_rice_ban_status"),
         ))
     else:
         intel_cards.append(card_status_html(
@@ -5933,6 +6368,7 @@ with col2:
             "Peace-time baseline — no active export ban on file.",
             is_baseline=True,
             caption_key="rice",
+            **_meta_kwargs("india_rice_ban_status"),
         ))
 
     st.markdown(
@@ -6124,8 +6560,12 @@ with col3:
          INTEL_BASELINE["panama_canal_neopanamax_price"], "panama"),
         ("Helium > $2000/Mcf", helium_v, 2000, "$", "gt", "",
          INTEL_BASELINE["helium_spot_price_mcf"], "helium"),
+        # Fix 3 — resin_v is the COMPUTED spike pct (already
+        # derived from intel_data["asian_pp_spot_price_ton"]); the
+        # threshold engine compares it to 40%. Baseline shown when
+        # data is unavailable is 0% (no spike).
         ("Resins > 40% spike", resin_v, 40, "", "gt", "%",
-         INTEL_BASELINE["asian_pe_pp_resin_spike"], "resin"),
+         0.0, "resin"),
         ("Jet Fuel > $1500/t", jet_v, 1500, "$", "gt", "",
          INTEL_BASELINE["jet_fuel_price_ton"], "jet"),
     ]
