@@ -21,16 +21,23 @@ CUSTOM_CSS = """
         color: #d1d5db;
     }
     .block-container {
-        /* v15.2 final — extra top room so the page title sits clear
-           of the sticky Critical Alert Ribbon at first paint, and
-           never falls behind it once the user scrolls. */
-        padding-top: 2.75rem;
+        /* v15.3 — bumped to 5rem to clear the Streamlit / GitHub
+           top navigation bar plus the sticky Critical Alert Ribbon
+           in one shot. Earlier 2.75rem was leaving the ribbon
+           partially clipped behind the host chrome. */
+        padding-top: 5rem;
         padding-bottom: 2rem;
         max-width: 1400px;
-        scroll-margin-top: 4rem;
+        scroll-margin-top: 5rem;
+    }
+    /* v15.3 — also target Streamlit's more specific
+       `.main .block-container` selector so the spacing wins on
+       Community Cloud where the host chrome is tallest. */
+    .main .block-container {
+        padding-top: 5rem !important;
     }
     .hud-title {
-        scroll-margin-top: 4rem;
+        scroll-margin-top: 5rem;
     }
     section[data-testid="stSidebar"] {
         background-color: #070a0f;
@@ -1014,9 +1021,86 @@ CUSTOM_CSS = """
         border-radius: 4px;
         overflow: hidden;
     }
+
+    /* v15.3 — Strategic Planning & Action cards. Sit between the
+       Strategic Outlook narrative and the 3-column body, surfacing
+       a single directive per RED/AMBER metric. Same glassmorphic
+       treatment as the rest of the HUD with tier-coloured glow so
+       the eye groups them with the per-card alert pulse below. */
+    .strategic-action-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+    .strategic-action-card {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-left-width: 4px;
+        border-radius: 6px;
+        padding: 1rem 1.15rem;
+        font-family: 'Courier New', monospace;
+        display: flex;
+        flex-direction: column;
+        min-height: 180px;
+    }
+    .strategic-action-card.sa-critical {
+        border-left-color: #ff4b4b;
+        box-shadow: 0 0 18px rgba(255, 75, 75, 0.20);
+    }
+    .strategic-action-card.sa-warning {
+        border-left-color: #ffa500;
+        box-shadow: 0 0 14px rgba(255, 165, 0, 0.18);
+    }
+    .sa-tag {
+        font-size: 0.62rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        font-weight: 700;
+        padding: 2px 7px;
+        border-radius: 2px;
+        display: inline-block;
+        margin-bottom: 0.55rem;
+        align-self: flex-start;
+    }
+    .sa-critical .sa-tag { background: #ff4b4b; color: #000; }
+    .sa-warning  .sa-tag { background: #ffa500; color: #000; }
+    .sa-metric {
+        color: #9ca3af;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 1.8px;
+        margin-bottom: 0.35rem;
+    }
+    .sa-headline {
+        font-size: 1.05rem;
+        font-weight: 600;
+        margin-bottom: 0.55rem;
+        letter-spacing: 0.5px;
+        line-height: 1.3;
+    }
+    .sa-critical .sa-headline { color: #fca5a5; }
+    .sa-warning  .sa-headline { color: #fed7aa; }
+    .sa-body {
+        color: #d1d5db;
+        font-size: 0.83rem;
+        line-height: 1.55;
+        margin-top: auto;
+    }
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+# v15.3 — explicit ribbon-clearance override. Streamlit on Community
+# Cloud / GitHub Codespaces injects its own top chrome which clips
+# the Critical Alert Ribbon at first paint. This single-rule
+# stylesheet guarantees the dashboard has 5rem of clear space at
+# the top of the block container regardless of host chrome.
+st.markdown(
+    '<style>.main .block-container {padding-top: 5rem;}</style>',
+    unsafe_allow_html=True,
+)
 
 BASELINE = {
     "Brent": 100.0,
@@ -1577,6 +1661,11 @@ CAPTION_TEXTS = {
         "critical": "Regime Shift: safe-haven flight confirmed. "
                     "Stress-test cash reserves and FX-hedge ratios "
                     "for monetary-regime repricing.",
+        # v15.4 — Gold lost the $4,660 ceiling and is now defending
+        # the $4,571 floor. Watch this support; loss of it likely
+        # signals a deeper risk-off reset.
+        "warning":  "Testing $4,571 support after breaking below "
+                    "the $4,660 ceiling.",
         "nominal":  "Flow Normal: macro signals align; defensive "
                     "positioning at routine levels.",
     },
@@ -1605,9 +1694,12 @@ CAPTION_TEXTS = {
                     "to food shelf prices is contained.",
     },
     "hormuz": {
-        "critical": "Chokepoint Closure: 20%+ of global crude/LNG "
-                    "flow rerouting via Cape; pump-price shock within "
-                    "3-6 weeks.",
+        # v15.4 — Total closure persists at ~4 ships/day. Rejection
+        # of the April 27 reopening offer locks in the structural
+        # break — assume Ras Laffan offline 3-5 years.
+        "critical": "Total closure persists; ~4 ships/day. Rejection "
+                    "of April 27th reopening offer locks in "
+                    "structural break.",
         "warning":  "Transit Stress: tanker rates and war-risk premia "
                     "spreading. Pre-brief logistics on contingency "
                     "routing.",
@@ -1621,8 +1713,12 @@ CAPTION_TEXTS = {
         "warning":  "Shadow Congestion: 48-72h lead time before "
                     "global manufacturing collapse can fire as Tail "
                     "Risk trigger.",
-        "nominal":  "Strait Clear: vessel backlog within baseline; "
-                    "no rerouting required.",
+        # v15.4 — FM Sugiono (April 28) reaffirmed free-passage
+        # commitment; the toll proposal that drove the v15.2
+        # shadow has been retracted. Traffic at 4,500/mo is normal.
+        "nominal":  "FM Sugiono (April 28) reaffirmed commitment to "
+                    "free passage; toll proposal retracted. Traffic "
+                    "normal at 4,500/mo.",
     },
     "helium": {
         # Day-count is interpolated dynamically by get_card_caption()
@@ -1664,8 +1760,12 @@ CAPTION_TEXTS = {
         "critical": "Staple Shock: India ban active. Leading "
                     "indicator for Vietnam/Thailand bans and 20% "
                     "price spike.",
-        "nominal":  "Exports Resumed: Global grain liquidity "
-                    "returning to baseline.",
+        # v15.4 — DGFT Notification 07/2026-27 (April 10, 2026) eases
+        # rice exports to non-EU European countries to improve
+        # competitiveness. Net-net liberalising, not restrictive.
+        "nominal":  "Notification 07/2026-27 (April 10) eases rice "
+                    "exports to non-EU European countries to improve "
+                    "competitiveness.",
     },
     # AI Storage equities (WDC + STX share the same playbook copy).
     "ai_storage": {
@@ -1739,25 +1839,43 @@ def get_card_caption(key, breach=False, warning=False, **fmt):
 
 
 # ============================================================
-# v15.2 final — Source URLs (Intelligence Hyperlinks)
+# v15.3 — Source URLs (Intelligence Hyperlinks, full coverage)
 # ============================================================
-# One canonical source URL per metric. The caption block renders a
-# small "Source ↗" hyperlink after the body text whenever a URL is
-# defined for the active caption_key. Keys without an entry simply
-# omit the link — future intel updates can extend this dict without
-# touching the rendering layer.
+# Every captioned card now carries a Source ↗ hyperlink in its
+# "Why & What" footer. The five canonical domains confirmed by the
+# v15.3 brief are mapped by category:
 #
-# Three URLs are confirmed by the v15.2 brief; additional canonical
-# sources will be supplied in subsequent intel updates.
+#   Reuters Commodities     → energy, fuels, fertilizer, resins
+#   Bloomberg Currencies    → precious metals, equity proxies
+#   Gas World News          → industrial gases (helium, CO2)
+#   APEDA DGFT Notifications → India rice export ban
+#   Kuehne+Nagel News       → maritime / shipping / chokepoints
+#
+# Additional canonical sources can be wired by extending this dict.
 SOURCE_URLS = {
-    "rice":    "https://apeda.gov.in/dgft-notifications",
-    "malacca": "https://mykn.kuehne-nagel.com/news/article/"
-               "indonesia-says-it-has-no-plan-to-toll-malacca",
-    "helium":  "https://www.iaphworldports.org/news/"
-               "worldmaritimenews/22046/",
-    # brent / ttf / gold / silver / panama / urea / hormuz / co2 /
-    # resin / jet / ai_storage / cf / dow / apd / jets — pending
-    # canonical-source confirmation.
+    # Energy & fuels — Reuters commodity desk.
+    "brent":      "https://www.reuters.com/markets/commodities/",
+    "ttf":        "https://www.reuters.com/markets/commodities/",
+    "urea":       "https://www.reuters.com/markets/commodities/",
+    "resin":      "https://www.reuters.com/markets/commodities/",
+    "jet":        "https://www.reuters.com/markets/commodities/",
+    # Precious metals & equity proxies — Bloomberg markets desk.
+    "gold":       "https://www.bloomberg.com/markets/currencies/",
+    "silver":     "https://www.bloomberg.com/markets/currencies/",
+    "ai_storage": "https://www.bloomberg.com/markets/currencies/",
+    "cf":         "https://www.bloomberg.com/markets/currencies/",
+    "dow":        "https://www.bloomberg.com/markets/currencies/",
+    "apd":        "https://www.bloomberg.com/markets/currencies/",
+    "jets":       "https://www.bloomberg.com/markets/currencies/",
+    # Industrial gases — Gas World news desk.
+    "helium":     "https://www.gasworld.com/news/",
+    "co2":        "https://www.gasworld.com/news/",
+    # Sovereign food policy — APEDA DGFT notifications.
+    "rice":       "https://apeda.gov.in/dgft-notifications",
+    # Maritime / shipping chokepoints — Kuehne+Nagel news.
+    "malacca":    "https://mykn.kuehne-nagel.com/news/",
+    "hormuz":     "https://mykn.kuehne-nagel.com/news/",
+    "panama":     "https://mykn.kuehne-nagel.com/news/",
 }
 
 
@@ -1995,6 +2113,114 @@ def build_critical_ribbon(prices: dict, intel: dict | None = None) -> str:
         return ""
     sep = '<span class="ribbon-sep">|</span>'
     return sep.join(pieces)
+
+
+# ============================================================
+# v15.3 — Strategic Planning & Action
+# ============================================================
+# Translates the live RED/AMBER status of each cluster into a single
+# actionable directive. The catalog below holds the v15.3 brief copy
+# verbatim; build_strategic_actions() decides which entries fire
+# based on the same trip-points used by the Threshold Monitor and
+# the GRS engine, so every section of the dashboard agrees on what
+# is hot.
+
+STRATEGIC_ACTION_CATALOG = {
+    "helium": {
+        "level": "critical",
+        "metric": "Industrial Helium",
+        "headline": "Defer Hardware Refreshes",
+        "body":
+            "Defer all non-essential hardware refreshes immediately. "
+            "Audit MRI coolant levels and fab-dependent SKUs.",
+    },
+    "co2": {
+        "level": "critical",
+        "metric": "Industrial CO2",
+        "headline": "Pre-position Inventory",
+        "body":
+            "Pre-position 60-day inventory for proteins and "
+            "carbonated goods. Activate alternate medical CO2 sources.",
+    },
+    "rice": {
+        "level": "critical",
+        "metric": "India Rice Ban",
+        "headline": "Lock 12-Month Grain Buffer",
+        "body":
+            "Secure 12-month rice/grain buffer within 72 hours. "
+            "Expect 20% price spike contagion to wheat/corn.",
+    },
+    "malacca": {
+        "level": "warning",
+        "metric": "Malacca Strait",
+        "headline": "Stress-Test Asian Logistics",
+        "body":
+            "Stress-test logistics for total Asian assembly paralysis. "
+            "48-72h lead time remains.",
+    },
+    "oil": {
+        "level": "critical",
+        "metric": "Oil & Hormuz",
+        "headline": "Lock Energy Financing",
+        "body":
+            "Lock fixed-rate energy/fuel financing where possible. "
+            "Stress-test transport-heavy COGS at +50%.",
+    },
+}
+
+
+def build_strategic_actions(prices, intel, brent_breach):
+    """v15.3 — emit the directives whose underlying metric is in a
+    RED or AMBER state right now.
+
+    The trip-points mirror the Threshold Monitor's tripwires so the
+    Strategic Planning section never disagrees with the rest of the
+    dashboard. Returns a list (possibly empty) of catalog entries
+    that the caller can render as cards."""
+    intel = intel or {}
+    fired = []
+
+    helium_red = (
+        helium_exhausted()
+        or (intel.get("helium_spot_price_mcf") or 0) > 2000
+    )
+    if helium_red:
+        fired.append(STRATEGIC_ACTION_CATALOG["helium"])
+
+    if CO2_BYPRODUCT_BREACH:
+        fired.append(STRATEGIC_ACTION_CATALOG["co2"])
+
+    if intel.get("india_rice_ban_status") == "ACTIVE":
+        fired.append(STRATEGIC_ACTION_CATALOG["rice"])
+
+    malacca_amber = (
+        malacca_shadow_active(intel)
+        or intel.get("malacca_severity") == "elevated"
+    )
+    malacca_red = intel.get("malacca_severity") == "critical"
+    if malacca_amber and not malacca_red:
+        fired.append(STRATEGIC_ACTION_CATALOG["malacca"])
+    elif malacca_red:
+        # Promote to critical when the strait is actively closed.
+        crit_copy = dict(STRATEGIC_ACTION_CATALOG["malacca"])
+        crit_copy["level"] = "critical"
+        crit_copy["headline"] = "Activate Malacca-Bypass Contingency"
+        crit_copy["body"] = (
+            "Strait closed — declare force-majeure exposure to legal. "
+            "Reroute via Lombok / Sunda. Expect war-risk premia to "
+            "spike materially within 48 hours."
+        )
+        fired.append(crit_copy)
+
+    hormuz = intel.get("hormuz_daily_transit_count")
+    oil_red = (
+        brent_breach
+        or (hormuz is not None and hormuz < 20)
+    )
+    if oil_red:
+        fired.append(STRATEGIC_ACTION_CATALOG["oil"])
+
+    return fired
 
 
 def render_sparkline_svg(values, color="#10b981", width=72, height=22):
@@ -3171,29 +3397,50 @@ if api_key:
 else:
     intel_meta["error"] = "Perplexity intel paused — no API key."
 
-# ---------- v15.2 INTELLIGENCE HOTFIX OVERRIDES ----------
-# These overrides take precedence over whatever Perplexity returned.
-# They reflect the v15.2 brief's confirmed real-world state and ensure
-# the engine, GRS, ribbon, and rendering all see the same picture
-# regardless of LLM retrieval drift.
+# ---------- v15.4 STATUS OVERRIDES (Verified Primary Source Data) ----------
+# v15.4 reframes the dashboard around primary-source accuracy. The
+# four metrics below have confirmed citations as of April 30, 2026
+# and are wired into both the data layer and the render layer so
+# the dashboard reflects truth-anchor state on first paint, even if
+# the Perplexity feed is slow / noisy / unavailable.
 #
-#   • India Rice Export Ban — forced ACTIVE / CRITICAL.
-#   • Malacca Status        — forced 🟡 WARNING (Shadow Congestion)
-#                             with the v15.2 context text. The shadow
-#                             tier is engaged via the existing
-#                             ships_waiting > 80 * 1.15 trigger.
-#
-# Helium (Day 59) and Industrial CO2 (EU ammonia 35%) are already
-# CRITICAL via their physical-logic gates — no override needed there.
-intel_data["india_rice_ban_status"] = "ACTIVE"
-# Suppress any Perplexity-returned severity so the shadow tier wins
-# the malacca rendering precedence chain.
-intel_data["malacca_severity"] = None
-intel_data["malacca_ships_waiting"] = 100  # +25% over 80/day baseline
+# Each entry maps to a primary source documented in the SOURCE_URLS
+# dict above; the rendering layer surfaces both the status and the
+# briefing copy below.
+STATUS_OVERRIDES = {
+    "India Rice":      "NOMINAL (Liberalized)",     # DGFT Notif 07/2026-27
+    "Malacca Strait":  "NOMINAL (Free Passage)",    # FM Sugiono Apr 28
+    "Gold":            "WARNING (Testing Support)",  # Support at $4,571
+    "Hormuz Transits": "CRITICAL (Blocked)",        # 95% drop confirmed
+}
+
+# v15.4 INDIA RICE — DGFT Notification 07/2026-27 (April 10, 2026)
+# eases rice exports to non-EU European countries. The ACTIVE/CRITICAL
+# stance from v15.2 is rolled back; the card renders as 🟢 NOMINAL
+# (Liberalized) with the new briefing.
+intel_data["india_rice_ban_status"] = "INACTIVE"
+
+# v15.4 MALACCA — FM Sugiono (April 28) reaffirmed free-passage
+# commitment; the toll proposal that triggered the v15.2 shadow has
+# been retracted. Clear the shadow trigger and bind the new briefing
+# text in malacca_status so the render layer surfaces it.
+intel_data["malacca_severity"] = "nominal"
+intel_data["malacca_ships_waiting"] = 80  # at baseline → no shadow
 intel_data["malacca_status"] = (
-    "Indonesia considering transit fees (Hormuz Contagion); "
-    "vessels loitering for insurance verification."
+    "FM Sugiono (April 28) reaffirmed commitment to free passage; "
+    "toll proposal retracted. Traffic normal at 4,500/mo."
 )
+
+# v15.4 HORMUZ — Strait at ~95% transit collapse persists. The
+# rejection of the April 27 reopening offer locks in the structural
+# break. Card renders as 🔴 CRITICAL: ~4 SHIPS/DAY below.
+intel_data["hormuz_daily_transit_count"] = 4
+
+# v15.4 GOLD — testing $4,571 support after breaking below the
+# $4,660 ceiling. Force the headline price into the warning band
+# (4400 < gold <= 4600) so the static amber glow lights up; the
+# warning caption surfaces the v15.4 briefing.
+prices["Gold"] = 4571.0
 
 # Scenario probabilities + Global Resilience Score computed once for
 # the consolidated snapshot so every section is internally consistent.
@@ -3410,6 +3657,69 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.markdown(render_strategic_outlook(adjusted), unsafe_allow_html=True)
+st.markdown("&nbsp;", unsafe_allow_html=True)
+
+# ---------- v15.3 STRATEGIC PLANNING & ACTION ----------
+# Sits directly below Strategic Outlook so the operator sees the
+# narrative scenario, then the concrete actions to take *now* given
+# whatever the dashboard is reading as RED or AMBER. The fired list
+# is rebuilt every page load from the live snapshot.
+_sp_brent = prices.get("Brent")
+_sp_brent_breach = (
+    (_sp_brent is not None and _sp_brent > 115)
+    or OECD_INVENTORY_BREACH
+)
+strategic_actions = build_strategic_actions(
+    prices, intel_data, _sp_brent_breach,
+)
+st.markdown(
+    '<h3 class="hud-title">◆ Strategic Planning &amp; Action</h3>',
+    unsafe_allow_html=True,
+)
+if strategic_actions:
+    _sp_cards = []
+    for _a in strategic_actions:
+        _lvl = _a["level"]  # 'critical' | 'warning'
+        _tag_label = "CRITICAL" if _lvl == "critical" else "WARNING"
+        _sp_cards.append(
+            f'<div class="strategic-action-card sa-{_lvl}">'
+            f'<span class="sa-tag">{_tag_label}</span>'
+            f'<div class="sa-metric">'
+            f'{html.escape(_a["metric"])}</div>'
+            f'<div class="sa-headline">'
+            f'{html.escape(_a["headline"])}</div>'
+            f'<div class="sa-body">'
+            f'{html.escape(_a["body"])}</div>'
+            f'</div>'
+        )
+    st.markdown(
+        '<div class="strategic-action-grid">'
+        + "".join(_sp_cards)
+        + '</div>',
+        unsafe_allow_html=True,
+    )
+    _crit_count = sum(
+        1 for _a in strategic_actions if _a["level"] == "critical"
+    )
+    _warn_count = sum(
+        1 for _a in strategic_actions if _a["level"] == "warning"
+    )
+    st.markdown(
+        f'<div class="status-strip">PLANNING POSTURE: '
+        f'<span style="color:#ff4b4b;">{_crit_count} CRITICAL</span> '
+        f'&nbsp;·&nbsp; '
+        f'<span style="color:#ffa500;">{_warn_count} WARNING</span> '
+        f'&nbsp;|&nbsp; Actions are derived from live RED / AMBER '
+        f'metrics and refresh on every page load.</div>',
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        '<div class="alert-ok">● ALL CLEAR — no metric is currently '
+        'in a RED or AMBER state. Continue routine monitoring; the '
+        'Threshold Monitor below remains armed.</div>',
+        unsafe_allow_html=True,
+    )
 st.markdown("&nbsp;", unsafe_allow_html=True)
 
 # ---------- v12.1 STRUCTURAL BREAK: 3-COLUMN LAYOUT ----------
@@ -3792,15 +4102,33 @@ with col2:
         warning=_urea_warn,
         caption_key="urea",
     ))
-    intel_cards.append(card_numeric_html(
-        "HORMUZ TRANSITS  (ships/day)",
-        hormuz_v,
-        INTEL_BASELINE["hormuz_daily_transit_count"],
-        "", False, fmt="{:.0f}",
-        breach=_hormuz_breach,
-        warning=_hormuz_warn,
-        caption_key="hormuz",
-    ))
+    # v15.3 — Hormuz under blockade. When the live transit count is
+    # at or below 4 ships/day (95%+ collapse), render as a status
+    # panel with the prominent "~4 SHIPS/DAY" headline rather than
+    # the numeric card. The threshold engine still sees the raw
+    # value upstream, so probability + GRS calculations are unchanged.
+    if hormuz_v is not None and hormuz_v <= 4:
+        intel_cards.append(card_status_html(
+            "HORMUZ TRANSITS",
+            f"🔴 CRITICAL: ~{hormuz_v:.0f} SHIPS/DAY",
+            "#ff4b4b",
+            "Strait of Hormuz under extended blockade — ~95% "
+            "transit collapse vs the 80/day peace-time baseline. "
+            "Crude/LNG flow rerouting via Cape and pipeline; "
+            "war-risk insurance premia spiking globally.",
+            breach=True,
+            caption_key="hormuz",
+        ))
+    else:
+        intel_cards.append(card_numeric_html(
+            "HORMUZ TRANSITS  (ships/day)",
+            hormuz_v,
+            INTEL_BASELINE["hormuz_daily_transit_count"],
+            "", False, fmt="{:.0f}",
+            breach=_hormuz_breach,
+            warning=_hormuz_warn,
+            caption_key="hormuz",
+        ))
 
     # v12.1 §2: Malacca Shadow Indicator — the upgraded Malacca card.
     # Three-state precedence (highest → lowest):
