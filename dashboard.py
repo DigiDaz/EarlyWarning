@@ -1466,8 +1466,21 @@ PERPLEXITY_SYSTEM_PROMPT = (
     "non-basmati white, broken, or parboiled — is currently in force)."
 )
 
+# v15.4 — neutral-query pattern. The user prompt is phrased to ask
+# what the actual primary-source state is on April 30, 2026 so the
+# LLM is anchored on official notifications / regulator statements
+# / market intelligence reports rather than secondary speculation.
+# This mirrors the conceptual `get_neutral_intel(topic)` pattern from
+# the v15.4 brief — neutral phrasing, primary-source emphasis, no
+# leading questions that prime a particular answer.
 PERPLEXITY_USER_PROMPT = (
-    "Find the latest April 2026 data for: "
+    "What is the actual text and status of each of the following "
+    "metrics on April 30, 2026? Reference primary sources only — "
+    "official government notifications, regulator statements, "
+    "exchange data feeds, and recognised market-intelligence "
+    "reports. Do not rely on speculation or unverified social "
+    "media. "
+    "Metrics: "
     "1. Panama Canal average auction price for Neopanamax slots. "
     "2. Global Urea spot price per ton. "
     "3. Current Strait of Hormuz daily ship transit counts. "
@@ -2125,58 +2138,49 @@ def build_critical_ribbon(prices: dict, intel: dict | None = None) -> str:
 # the GRS engine, so every section of the dashboard agrees on what
 # is hot.
 
+# v15.4 — Strategic Planning collapses to two combined directives,
+# matching the v15.4 brief's tightened action set. The Rice / Malacca
+# / generic Oil entries from v15.3 are retired because the v15.4
+# truth anchor reports those metrics as NOMINAL (Rice liberalised,
+# Malacca free-passage). Helium and CO2 are merged into one combined
+# directive — they share the same hardware/medical/protein response
+# playbook and firing both separately under v15.4 conditions doubled
+# the cognitive load without adding new advice.
 STRATEGIC_ACTION_CATALOG = {
-    "helium": {
+    "helium_co2": {
         "level": "critical",
-        "metric": "Industrial Helium",
+        "metric": "Industrial Gases (Helium / CO2)",
         "headline": "Defer Hardware Refreshes",
         "body":
-            "Defer all non-essential hardware refreshes immediately. "
-            "Audit MRI coolant levels and fab-dependent SKUs.",
+            "Defer hardware refreshes. Pre-position 60-day protein "
+            "buffer. Audit medical gas supply.",
     },
-    "co2": {
+    "hormuz": {
         "level": "critical",
-        "metric": "Industrial CO2",
-        "headline": "Pre-position Inventory",
-        "body":
-            "Pre-position 60-day inventory for proteins and "
-            "carbonated goods. Activate alternate medical CO2 sources.",
-    },
-    "rice": {
-        "level": "critical",
-        "metric": "India Rice Ban",
-        "headline": "Lock 12-Month Grain Buffer",
-        "body":
-            "Secure 12-month rice/grain buffer within 72 hours. "
-            "Expect 20% price spike contagion to wheat/corn.",
-    },
-    "malacca": {
-        "level": "warning",
-        "metric": "Malacca Strait",
-        "headline": "Stress-Test Asian Logistics",
-        "body":
-            "Stress-test logistics for total Asian assembly paralysis. "
-            "48-72h lead time remains.",
-    },
-    "oil": {
-        "level": "critical",
-        "metric": "Oil & Hormuz",
+        "metric": "Strait of Hormuz",
         "headline": "Lock Energy Financing",
         "body":
-            "Lock fixed-rate energy/fuel financing where possible. "
-            "Stress-test transport-heavy COGS at +50%.",
+            "Lock fixed-rate energy/fuel costs. Assume Ras Laffan "
+            "offline 3-5 years.",
     },
 }
 
 
 def build_strategic_actions(prices, intel, brent_breach):
-    """v15.3 — emit the directives whose underlying metric is in a
-    RED or AMBER state right now.
+    """v15.4 — emit the directives whose underlying metric is in a
+    RED state right now. Two rules:
 
-    The trip-points mirror the Threshold Monitor's tripwires so the
+      1. Helium OR CO2 RED → combined gases directive.
+      2. Hormuz RED        → energy / fuel-financing directive.
+
+    Trip-points mirror the Threshold Monitor's tripwires so the
     Strategic Planning section never disagrees with the rest of the
     dashboard. Returns a list (possibly empty) of catalog entries
-    that the caller can render as cards."""
+    that the caller can render as cards.
+
+    Note: `prices` and `brent_breach` are accepted for signature
+    stability with v15.3 callers; v15.4 logic does not consult them
+    directly because the truth anchor binds Hormuz status."""
     intel = intel or {}
     fired = []
 
@@ -2184,41 +2188,14 @@ def build_strategic_actions(prices, intel, brent_breach):
         helium_exhausted()
         or (intel.get("helium_spot_price_mcf") or 0) > 2000
     )
-    if helium_red:
-        fired.append(STRATEGIC_ACTION_CATALOG["helium"])
-
-    if CO2_BYPRODUCT_BREACH:
-        fired.append(STRATEGIC_ACTION_CATALOG["co2"])
-
-    if intel.get("india_rice_ban_status") == "ACTIVE":
-        fired.append(STRATEGIC_ACTION_CATALOG["rice"])
-
-    malacca_amber = (
-        malacca_shadow_active(intel)
-        or intel.get("malacca_severity") == "elevated"
-    )
-    malacca_red = intel.get("malacca_severity") == "critical"
-    if malacca_amber and not malacca_red:
-        fired.append(STRATEGIC_ACTION_CATALOG["malacca"])
-    elif malacca_red:
-        # Promote to critical when the strait is actively closed.
-        crit_copy = dict(STRATEGIC_ACTION_CATALOG["malacca"])
-        crit_copy["level"] = "critical"
-        crit_copy["headline"] = "Activate Malacca-Bypass Contingency"
-        crit_copy["body"] = (
-            "Strait closed — declare force-majeure exposure to legal. "
-            "Reroute via Lombok / Sunda. Expect war-risk premia to "
-            "spike materially within 48 hours."
-        )
-        fired.append(crit_copy)
+    co2_red = CO2_BYPRODUCT_BREACH
+    if helium_red or co2_red:
+        fired.append(STRATEGIC_ACTION_CATALOG["helium_co2"])
 
     hormuz = intel.get("hormuz_daily_transit_count")
-    oil_red = (
-        brent_breach
-        or (hormuz is not None and hormuz < 20)
-    )
-    if oil_red:
-        fired.append(STRATEGIC_ACTION_CATALOG["oil"])
+    hormuz_red = hormuz is not None and hormuz < 20
+    if hormuz_red:
+        fired.append(STRATEGIC_ACTION_CATALOG["hormuz"])
 
     return fired
 
@@ -4139,6 +4116,15 @@ with col2:
     #      note.
     #   3. Otherwise existing severity logic (elevated / nominal /
     #      baseline fallback).
+    # v15.4 truth anchor — when the data layer reports NOMINAL with
+    # the FM Sugiono free-passage briefing, render with the explicit
+    # "🟢 NOMINAL (Free Passage)" headline so the operator sees the
+    # primary-source state at a glance.
+    _malacca_v154_nominal = (
+        malacca_sev == "nominal"
+        and not shadow_active
+        and malacca_status
+    )
     if malacca_sev == "critical":
         intel_cards.append(card_status_html(
             "MALACCA STATUS",
@@ -4146,6 +4132,14 @@ with col2:
             SEVERITY_COLORS["critical"],
             malacca_status or "(no status text returned)",
             breach=True,
+            caption_key="malacca",
+        ))
+    elif _malacca_v154_nominal:
+        intel_cards.append(card_status_html(
+            "MALACCA STATUS",
+            "🟢 NOMINAL (Free Passage)",
+            SEVERITY_COLORS["nominal"],
+            malacca_status,
             caption_key="malacca",
         ))
     elif shadow_active and malacca_sev != "elevated":
@@ -4269,9 +4263,14 @@ with col2:
         caption_key="jet",
     ))
 
+    # v15.4 truth anchor — DGFT Notification 07/2026-27 (April 10, 2026)
+    # liberalised rice exports to non-EU European countries. The card
+    # title flips from "INDIA RICE EXPORT BAN" to "INDIA RICE POLICY"
+    # since the headline is no longer a ban; the briefing text and
+    # source link surface the underlying notification.
     if rice_ban == "ACTIVE":
         intel_cards.append(card_status_html(
-            "INDIA RICE EXPORT BAN", "🔴 ACTIVE / CRITICAL", "#dc2626",
+            "INDIA RICE POLICY", "🔴 ACTIVE / CRITICAL", "#dc2626",
             "Indian government export ban currently in force on at "
             "least one rice category. Sovereign food-policy shock "
             "active.",
@@ -4279,14 +4278,18 @@ with col2:
             caption_key="rice",
         ))
     elif rice_ban == "INACTIVE":
+        # v15.4 — primary-source briefing: DGFT Notif 07/2026-27.
         intel_cards.append(card_status_html(
-            "INDIA RICE EXPORT BAN", "INACTIVE", "#10b981",
-            "No active Indian rice export ban currently in force.",
+            "INDIA RICE POLICY",
+            "🟢 NOMINAL (Liberalized)",
+            "#10b981",
+            "Notification 07/2026-27 (April 10) eases rice exports "
+            "to non-EU European countries to improve competitiveness.",
             caption_key="rice",
         ))
     else:
         intel_cards.append(card_status_html(
-            "INDIA RICE EXPORT BAN",
+            "INDIA RICE POLICY",
             RICE_BAN_BASELINE,
             "#10b981",
             "Peace-time baseline — no active export ban on file.",
