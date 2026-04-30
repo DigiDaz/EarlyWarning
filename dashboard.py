@@ -416,17 +416,15 @@ EQUITY_PROXY_META = {
              "audit": "AI storage and helium-sealed HDD supply — "
                       "hyperscaler buildout pipeline",
              "why_it_matters":
-                 "95% of output locked to hyperscalers; 2026 builds "
-                 "physically constrained by helium-sealed drive "
-                 "shortages."},
+                 "95% of 2026 output locked to hyperscalers; "
+                 "hardware freeze for broader market."},
     "STX":  {"name": "AI STORAGE / HDD BOTTLENECK (STX)",
              "proxy_for": "AI storage / HDD",
              "audit": "AI storage and helium-sealed HDD supply — "
                       "hyperscaler buildout pipeline",
              "why_it_matters":
-                 "95% of output locked to hyperscalers; 2026 builds "
-                 "physically constrained by helium-sealed drive "
-                 "shortages."},
+                 "Strict allocation for 2026 builds; physically "
+                 "constrained by helium-sealed drive shortage."},
 }
 
 # v11 Intelligence Brief — physical-logic gates layered on top of the
@@ -436,6 +434,15 @@ HELIUM_BOIL_OFF_DAYS = 48              # liquid helium boil-off threshold
 OECD_INVENTORY_OPERATIONAL_MIN_MB = 842
 OECD_INVENTORY_BREACH = True           # v11 confirmed below operational minimum
 JET_FUEL_SPIKE_THRESHOLD_PCT = 55      # "Payload Displacement Warning" gate
+
+# Industrial CO2 byproduct: European ammonia plants closed → food-grade
+# CO2 byproduct exhausted. Threshold is 40% capacity utilisation; v11
+# brief confirms current capacity is well below.
+EUROPEAN_AMMONIA_CAPACITY_PCT = 35.0
+EUROPEAN_AMMONIA_THRESHOLD_PCT = 40.0
+CO2_BYPRODUCT_BREACH = (
+    EUROPEAN_AMMONIA_CAPACITY_PCT < EUROPEAN_AMMONIA_THRESHOLD_PCT
+)
 
 # Severity tiers for absolute daily % move on the proxy. Symmetric so
 # a large drop (e.g., JETS down 14%) flags the same way as a large
@@ -485,6 +492,16 @@ PROB_COLORS = {
     "Tail Risk": "#dc2626",
 }
 
+# Display names — used for the Strategic Outlook card title and the
+# Probability Matrix bars. Internal dict keys are kept short for the
+# engine; the user-facing labels can carry the structural framing.
+SCENARIO_DISPLAY_NAMES = {
+    "Best Case": "Best Case",
+    "Slow Normalization": "Slow Normalization",
+    "Base Case": "Base Case: Structural Shift",
+    "Tail Risk": "Tail Risk",
+}
+
 # Strategic Outlook bullets for each scenario. The card under the
 # Probability Matrix renders the narrative for whichever scenario
 # currently has the highest probability. Color theming is reused from
@@ -510,9 +527,10 @@ SCENARIO_NARRATIVES = {
         "Helium rationing through 2027; Sticky 5% inflation.",
     ],
     "Base Case": [
-        "Hormuz contested through 2027; Ras Laffan offline 3+ years.",
-        "Brent $100–120 sustained; Winter 2026/27 EU gas crisis.",
-        "Major HBM/GPU launch slips; Multiple food-export bans cascade.",
+        "Hormuz contested through 2027.",
+        "Ras Laffan offline 3+ years.",
+        "Major HBM/GPU launch slips.",
+        "Global food-export bans cascade.",
     ],
     "Tail Risk": [
         "Cascading breakdown (Malacca/subsea cable attacks); Asian "
@@ -946,6 +964,11 @@ def adjust_probabilities(prices: dict, intel: dict | None = None,
         probs["Base Case"] -= 4
         probs["Slow Normalization"] -= 4
 
+    if CO2_BYPRODUCT_BREACH:
+        probs["Tail Risk"] += 6
+        probs["Base Case"] -= 3
+        probs["Slow Normalization"] -= 3
+
     jet_pct = jet_spike_pct(intel.get("jet_fuel_price_ton"))
     if jet_pct is not None and jet_pct > JET_FUEL_SPIKE_THRESHOLD_PCT:
         probs["Base Case"] += 4
@@ -1024,6 +1047,29 @@ def evaluate_playbook(prices: dict, intel: dict | None = None,
                 "Expect tech-product price spikes (storage, GPUs, "
                 "MRI service) within 1-2 quarters. Defer "
                 "non-essential electronics purchases.",
+        })
+
+    if CO2_BYPRODUCT_BREACH:
+        actions.append({
+            "level": "critical",
+            "trigger": (
+                f"INDUSTRIAL CO2 BYPRODUCT EXHAUSTED — "
+                f"EU ammonia capacity at {EUROPEAN_AMMONIA_CAPACITY_PCT:.0f}% "
+                f"(< {EUROPEAN_AMMONIA_THRESHOLD_PCT:.0f}% threshold)"
+            ),
+            "business":
+                "Ammonia plants closed; byproduct food-grade CO2 "
+                "exhausted. Audit exposure across meat processing, "
+                "beverage carbonation, dry-ice cold chain, and "
+                "medical gas supply. Activate alternate-source CO2 "
+                "contracts immediately; pre-position 60-day inventory "
+                "for any SKU dependent on food-grade CO2.",
+            "household":
+                "Expect tightening supply and price spikes on "
+                "carbonated beverages, packaged meats, and select "
+                "frozen goods over the next 4-8 weeks. Anticipate "
+                "elective-procedure delays where medical CO2 is "
+                "required.",
         })
 
     if OECD_INVENTORY_BREACH:
@@ -1329,6 +1375,7 @@ def render_strategic_outlook(adjusted: dict) -> str:
     pct = adjusted[lead]
     color = PROB_COLORS.get(lead, "#9ca3af")
     bullets = SCENARIO_NARRATIVES.get(lead, [])
+    display_name = SCENARIO_DISPLAY_NAMES.get(lead, lead)
 
     bullets_html = "".join(
         f"<li>{html.escape(b)}</li>" for b in bullets
@@ -1346,7 +1393,7 @@ def render_strategic_outlook(adjusted: dict) -> str:
         f'<div class="scenario-narrative-header">'
         f'<span class="scenario-narrative-tag">LEAD SCENARIO</span>'
         f'<span class="scenario-narrative-title" '
-        f'style="color: {color};">{html.escape(lead)}</span>'
+        f'style="color: {color};">{html.escape(display_name)}</span>'
         f'<span class="scenario-narrative-prob" '
         f'style="color: {color}; border-color: {color}; '
         f'background: {color}1A;">{pct:.1f}% probability</span>'
@@ -1845,14 +1892,18 @@ else:
 
 if helium_exhausted():
     # Past the 48-day boil-off threshold — render as a status card
-    # showing EXHAUSTED rather than a price card. The price field is
-    # no longer the meaningful signal; supply integrity is.
+    # showing the dynamic day count and how far past the physical
+    # shelf-life limit we are. The price field is no longer the
+    # meaningful signal; supply integrity is.
     _he_days = helium_days_elapsed()
+    _days_past = _he_days - HELIUM_BOIL_OFF_DAYS
     intel_cards.append(card_status_html(
-        f"HELIUM ($/Mcf) — DAY {_he_days}/{HELIUM_BOIL_OFF_DAYS}+",
-        "EXHAUSTED",
+        "INDUSTRIAL HELIUM (Qatar FM)",
+        f"DAY {_he_days} — EXHAUSTED",
         "#dc2626",
-        "Semiconductor yield collapse imminent; fab stockpiles depleted.",
+        f"{_days_past} days past physical shelf-life limit. "
+        "Semiconductor yield collapse imminent; fab floor reserves "
+        "depleted.",
         breach=True,
     ))
 else:
@@ -1863,6 +1914,29 @@ else:
         "$", True, fmt="{:,.0f}",
         breach=helium_v is not None and helium_v > 2000,
     ))
+
+# Industrial CO2 byproduct — linked to European ammonia plant capacity.
+# Sub-40% utilisation kills food-grade CO2 production; downstream impact
+# spans meat processing, beverage carbonation, and medical gas supply.
+if CO2_BYPRODUCT_BREACH:
+    intel_cards.append(card_status_html(
+        f"INDUSTRIAL CO2 BYPRODUCT (EU ammonia "
+        f"{EUROPEAN_AMMONIA_CAPACITY_PCT:.0f}%)",
+        "EXHAUSTED",
+        "#dc2626",
+        "Ammonia plants closed; byproduct food-grade CO2 exhausted. "
+        "Meat processing, soft drinks, and medical gas at risk.",
+        breach=True,
+    ))
+else:
+    intel_cards.append(card_status_html(
+        "INDUSTRIAL CO2 BYPRODUCT",
+        "NOMINAL",
+        "#10b981",
+        "European ammonia capacity within nominal range; food-grade "
+        "CO2 byproduct supply stable.",
+    ))
+
 intel_cards.append(card_numeric_html(
     "PE/PP RESIN SPIKE  (Asia)",
     resin_v,
@@ -2101,6 +2175,34 @@ with right:
         f'</span>'
         f'<span style="color:#9ca3af;">live: {oecd_live}</span>'
         f'<span>{oecd_status}</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    # EU ammonia capacity → Industrial CO2 byproduct gate
+    if CO2_BYPRODUCT_BREACH:
+        co2_live = (
+            f"{EUROPEAN_AMMONIA_CAPACITY_PCT:.0f}% "
+            f"(< {EUROPEAN_AMMONIA_THRESHOLD_PCT:.0f}%)"
+        )
+        co2_status = (
+            '<span style="color:#dc2626;">'
+            '● BREACHED (CO2 EXHAUSTED)</span>'
+        )
+    else:
+        co2_live = (
+            f"{EUROPEAN_AMMONIA_CAPACITY_PCT:.0f}% "
+            f"(>= {EUROPEAN_AMMONIA_THRESHOLD_PCT:.0f}%)"
+        )
+        co2_status = '<span style="color:#10b981;">● NOMINAL</span>'
+    st.markdown(
+        f'<div class="prob-bar-container" style="display:flex;'
+        f'justify-content:space-between;font-family:Courier New,monospace;'
+        f'font-size:0.8rem;">'
+        f'<span style="color:#9ca3af;">'
+        f'EU ammonia capacity &lt; {EUROPEAN_AMMONIA_THRESHOLD_PCT:.0f}%'
+        f'</span>'
+        f'<span style="color:#9ca3af;">live: {co2_live}</span>'
+        f'<span>{co2_status}</span></div>',
         unsafe_allow_html=True,
     )
 
