@@ -352,6 +352,198 @@ CUSTOM_CSS = """
         margin-left: 6px;
         vertical-align: middle;
     }
+    /* v12.1 — HDD Stockout Countdown panel. Lives inside the AI Storage
+       block in column 1. The numeric day count is the dominant element;
+       the contextual alert below explains the structural lockout. */
+    .hdd-countdown {
+        background: linear-gradient(135deg, rgba(220,38,38,0.08) 0%,
+                    rgba(17,24,39,0.0) 70%), #111827;
+        border: 1px solid #1f2937;
+        border-left: 4px solid #dc2626;
+        border-radius: 6px;
+        padding: 1.1rem 1.25rem;
+        margin-bottom: 1rem;
+        font-family: 'Courier New', monospace;
+    }
+    .hdd-countdown-label {
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        font-size: 0.72rem;
+        margin-bottom: 0.55rem;
+    }
+    .hdd-countdown-value {
+        color: #fca5a5;
+        font-size: 2.1rem;
+        font-weight: 600;
+        line-height: 1.1;
+        letter-spacing: 1px;
+    }
+    .hdd-countdown-value .hdd-unit {
+        font-size: 1rem;
+        color: #9ca3af;
+        margin-left: 0.4rem;
+        letter-spacing: 2px;
+    }
+    .hdd-countdown-target {
+        color: #6b7280;
+        font-size: 0.72rem;
+        margin-top: 0.35rem;
+        letter-spacing: 0.5px;
+    }
+    .hdd-countdown-alert {
+        margin-top: 0.85rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid rgba(255,255,255,0.06);
+        color: #fde68a;
+        font-size: 0.78rem;
+        line-height: 1.5;
+        font-style: italic;
+    }
+    /* v12.1 — Systemic Cascade flow diagram. Renders the
+       Energy → Ammonia → CO2 → Meat/Medical chain as styled boxes
+       connected by arrows. Downstream nodes flip RED when EU ammonia
+       capacity < 40%. */
+    .cascade-container {
+        background-color: #111827;
+        border: 1px solid #1f2937;
+        border-radius: 6px;
+        padding: 1rem 1.1rem;
+        margin-bottom: 1rem;
+        font-family: 'Courier New', monospace;
+    }
+    .cascade-flow {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: stretch;
+        gap: 0.5rem;
+        margin-top: 0.6rem;
+    }
+    .cascade-node {
+        flex: 1 1 0;
+        min-width: 0;
+        background-color: #0d1218;
+        border: 1px solid #1f2937;
+        border-left: 3px solid #6b7280;
+        border-radius: 4px;
+        padding: 0.6rem 0.7rem;
+        color: #d1d5db;
+        font-size: 0.72rem;
+        line-height: 1.3;
+    }
+    .cascade-node-title {
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 0.62rem;
+        margin-bottom: 0.25rem;
+    }
+    .cascade-node.cascade-source {
+        border-left-color: #3b82f6;
+    }
+    .cascade-node.cascade-mid {
+        border-left-color: #eab308;
+    }
+    .cascade-node.cascade-mid.cascade-red,
+    .cascade-node.cascade-sink.cascade-red {
+        border-left-color: #dc2626;
+        background-color: rgba(220,38,38,0.10);
+        color: #fca5a5;
+        box-shadow: 0 0 8px rgba(220,38,38,0.15);
+    }
+    .cascade-node.cascade-mid.cascade-red .cascade-node-title,
+    .cascade-node.cascade-sink.cascade-red .cascade-node-title {
+        color: #fca5a5;
+    }
+    .cascade-arrow {
+        align-self: center;
+        color: #4b5563;
+        font-size: 1.1rem;
+        padding: 0 0.15rem;
+    }
+    .cascade-trigger-note {
+        margin-top: 0.85rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid rgba(255,255,255,0.06);
+        font-size: 0.74rem;
+        color: #9ca3af;
+        line-height: 1.5;
+    }
+    .cascade-trigger-note.cascade-active {
+        color: #fca5a5;
+    }
+    /* v12.1 — Threshold Monitor row using <details>/<summary> so the
+       Intelligence Insight expander stays inline with the row card.
+       Clicking the row toggles the explanatory paragraph. */
+    .threshold-row {
+        background-color: #111827;
+        border: 1px solid #1f2937;
+        border-radius: 4px;
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.5rem;
+        font-family: 'Courier New', monospace;
+        font-size: 0.8rem;
+    }
+    .threshold-row.threshold-breached {
+        border-left: 3px solid #dc2626;
+    }
+    .threshold-row.threshold-warning {
+        border-left: 3px solid #eab308;
+    }
+    .threshold-row[open] {
+        background-color: #0d1218;
+    }
+    .threshold-summary {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+        list-style: none;
+        gap: 0.5rem;
+    }
+    .threshold-summary::-webkit-details-marker { display: none; }
+    .threshold-summary::marker { content: ""; }
+    .threshold-summary .t-name { color: #9ca3af; flex: 1; }
+    .threshold-summary .t-live { color: #9ca3af; }
+    .threshold-summary .t-status { white-space: nowrap; }
+    .threshold-insight {
+        margin-top: 0.6rem;
+        padding: 0.7rem 0.85rem;
+        background-color: rgba(220,38,38,0.06);
+        border-left: 2px solid #dc2626;
+        border-radius: 3px;
+        color: #fde68a;
+        font-size: 0.76rem;
+        line-height: 1.55;
+        font-style: italic;
+    }
+    .threshold-insight.insight-warn {
+        background-color: rgba(234,179,8,0.06);
+        border-left-color: #eab308;
+    }
+    .threshold-insight strong {
+        color: #fca5a5;
+        font-style: normal;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 0.68rem;
+        display: block;
+        margin-bottom: 0.3rem;
+    }
+    .threshold-insight.insight-warn strong { color: #fde68a; }
+    /* v12.1 — Section sub-titles inside each of the 3 columns. Slightly
+       smaller than the main hud-title to keep the column hierarchy
+       clean. */
+    .col-section-title {
+        color: #00ffd1;
+        font-family: 'Courier New', monospace;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        font-size: 0.85rem;
+        border-bottom: 1px solid #1f2937;
+        padding-bottom: 0.4rem;
+        margin: 0.4rem 0 0.85rem 0;
+    }
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -443,6 +635,136 @@ EUROPEAN_AMMONIA_THRESHOLD_PCT = 40.0
 CO2_BYPRODUCT_BREACH = (
     EUROPEAN_AMMONIA_CAPACITY_PCT < EUROPEAN_AMMONIA_THRESHOLD_PCT
 )
+
+# v12.1 Structural Break — predictive intelligence layer.
+#
+# HDD Stockout Countdown: 95% of WDC/STX 2026 enterprise HDD output is
+# locked to hyperscaler contracts. Standard enterprise channels enter a
+# physical hardware freeze running through the end of 2026. Countdown
+# is days remaining from "today" (currently April 30 2026) to Dec 31.
+HDD_STOCKOUT_TARGET_DATE = date(2026, 12, 31)
+
+# Malacca Shadow Indicator — congestion_delta is "ships waiting" beyond
+# the peace-time daily transit baseline. >15% above baseline triggers
+# CONGESTION SHADOW. The brief: 48-72h lead time before total global
+# manufacturing collapse fires as the Tail Risk trigger.
+MALACCA_BASELINE_SHIPS = 80
+MALACCA_SHADOW_THRESHOLD_PCT = 15.0
+
+# v12.1 — Intelligence Insight copy for breached/critical Threshold
+# Monitor rows. Each row maps a stable key to the explanatory text that
+# unfolds when the user expands the row. Phrasing is sourced from the
+# v11/v12.1 intelligence brief — second-order consequences and tail
+# linkages, not just the breach itself.
+INTELLIGENCE_INSIGHTS = {
+    "brent": (
+        "Sustained Brent above $115-130 forces transport-cost "
+        "pass-through into food, freight, and household energy "
+        "budgets within 6-8 weeks. Combined with the OECD inventory "
+        "breach, price is now the rationing mechanism — not supply."
+    ),
+    "ttf": (
+        "European industrial gas above EUR 65-80/MWh suppresses "
+        "ammonia, glass, and ceramic output and accelerates fertilizer "
+        "shutdowns. Cascades directly into food-grade CO2, urea, and "
+        "the Spring 2027 harvest input window."
+    ),
+    "gold": (
+        "Gold above $4600 confirms safe-haven flight and monetary-regime "
+        "stress. Pressure-test cash reserves and FX-hedge ratios; "
+        "USD-denominated receivables are exposed to a regime-shift "
+        "repricing window."
+    ),
+    "silver": (
+        "Silver above $75 reflects industrial-precious correlation "
+        "breakdown. Solar and electronics BOMs face direct cost pressure; "
+        "lock 90-day futures for any silver-linked capex pipeline."
+    ),
+    "urea": (
+        "Urea spot above $600-800/t propagates through grain, dairy, "
+        "and meat shelf prices in 2-3 quarters. Spring 2027 harvest "
+        "yields will reflect input-cost rationing today — leading "
+        "indicator for the food-cost pass-through window."
+    ),
+    "hormuz": (
+        "Hormuz transit below 30/day cuts global crude/LNG flow by "
+        "20%+. Activate Cape and pipeline routing assumptions; expect "
+        "pump-price shocks within 3-6 weeks and war-risk insurance "
+        "premia to spike materially within 48h."
+    ),
+    "panama": (
+        "Panama Neopanamax slots above $2.5-4.0M force Asia-USEC "
+        "freight onto Suez or USWC+rail. Holiday-season consumer "
+        "goods carry 6-10% shipping cost pass-through; FAK rate spike "
+        "follows by 30-45 days."
+    ),
+    "helium": (
+        "Reserves are physically exhausted. Expect semiconductor fab "
+        "yield degradation and high-end electronics launch delays. "
+        "MRI cryogenic refills are at risk; diagnostic-imaging service "
+        "windows will lengthen across hospital networks."
+    ),
+    "co2": (
+        "This signifies more than just gas loss; it is a shelf-life "
+        "crisis for fresh meat/poultry and a superconducting hazard "
+        "for MRI magnets. Beverage carbonation, dry-ice cold chain, "
+        "and elective-procedure medical gas all degrade in parallel."
+    ),
+    "resin": (
+        "PE/PP resin above 40% spike degrades medical device, sterile "
+        "packaging, and consumer goods BOMs. Pull forward 60-day POs; "
+        "qualified alternate-grade suppliers are the only viable hedge "
+        "before retail COGS pass-through."
+    ),
+    "jet": (
+        "Jet fuel above $1,500/t triggers payload displacement: "
+        "airlines trade revenue weight for fuel weight. Air-freight "
+        "rates spike 30-50%; shift time-tolerant cargo to ocean and "
+        "lock seasonal travel before airfare repricing completes."
+    ),
+    "rice": (
+        "Sovereign food-policy shock: rice shelf prices climb 20-50% "
+        "within weeks across import-dependent markets. Expect "
+        "second-order moves in wheat, noodles, and animal feed; Asian "
+        "and MENA geographies are most exposed."
+    ),
+    "malacca_critical": (
+        "A critical Malacca event collapses the probability matrix to "
+        "Tail Risk MAX. Force majeure exposure, war-risk premia, and "
+        "60-90 day inventory pre-positioning for any China-EU or "
+        "Gulf-Asia lane SKU all activate simultaneously."
+    ),
+    "malacca_shadow": (
+        "Malacca congestion provides 48-72 hours of lead time before "
+        "total global manufacturing collapse (Tail Risk Trigger). "
+        "Ships-waiting >15% above the 80/day baseline is the leading "
+        "indicator — pre-position contingency routing now."
+    ),
+    "oecd": (
+        "OECD commercial inventories below the 842 MB operational "
+        "minimum mean physical buffer is gone. Brent is forced "
+        "CRITICAL irrespective of spot — assume sustained $130+ and "
+        "stress-test transport-heavy COGS at +50%."
+    ),
+    "jet_displacement": (
+        "Payload Displacement Warning: aviation arithmetic breaking. "
+        "Cargo and passenger capacity contract simultaneously as fuel "
+        "weight crowds out revenue weight. Re-quote air-freight; "
+        "expect 30-50% rate spike within the lead-time window."
+    ),
+    "helium_boiloff": (
+        "Past the 48-day liquid-helium boil-off threshold from the "
+        "Qatar force majeure. Fab and MRI stockpiles are physically "
+        "depleted — this is a shelf-life event, not a price event. "
+        "Activate alternate-source contracts now."
+    ),
+    "equity_critical": (
+        "An equity-proxy spike of >=12% on a single session is the "
+        "market pricing in physical stress before the underlying feed "
+        "updates. Treat as a 24-72h leading indicator for the linked "
+        "supply chain; brief procurement, finance, and legal."
+    ),
+}
 
 # Severity tiers for absolute daily % move on the proxy. Symmetric so
 # a large drop (e.g., JETS down 14%) flags the same way as a large
@@ -573,6 +895,11 @@ PERPLEXITY_SYSTEM_PROMPT = (
     "\"critical\"; use \"critical\" only for active blockade, closure, "
     "collision-induced channel obstruction, or major security incident "
     "actively disrupting transit), "
+    "malacca_ships_waiting (integer, number of ships currently "
+    "queued/waiting at the Strait of Malacca anchorage or backlog; "
+    "peace-time baseline is approximately 80; if a precise number "
+    "cannot be sourced, return your best estimate from the most recent "
+    "7 days of maritime traffic reporting and DO NOT return 0), "
     "helium_spot_price_mcf (USD per Mcf, number), "
     "asian_pe_pp_resin_spike (percentage as plain number, e.g. 25 means "
     "25% — current estimated price spike / percentage increase for Asian "
@@ -592,6 +919,8 @@ PERPLEXITY_USER_PROMPT = (
     "3. Current Strait of Hormuz daily ship transit counts. "
     "4. Current Strait of Malacca maritime congestion status, vessel "
     "backlog delays, or breaking maritime incidents. "
+    "4b. Current number of ships waiting/queued at the Strait of "
+    "Malacca anchorage (peace-time baseline ~80). "
     "5. Current global spot price for Helium per Mcf. "
     "6. Current estimated price spike / percentage increase for Asian "
     "PE/PP base resins. "
@@ -604,7 +933,8 @@ PERPLEXITY_USER_PROMPT = (
     "Return a single raw JSON object with exactly these keys: "
     "panama_canal_neopanamax_price, urea_spot_price_ton, "
     "hormuz_daily_transit_count, malacca_status, malacca_severity, "
-    "helium_spot_price_mcf, asian_pe_pp_resin_spike, jet_fuel_price_ton, "
+    "malacca_ships_waiting, helium_spot_price_mcf, "
+    "asian_pe_pp_resin_spike, jet_fuel_price_ton, "
     "india_rice_ban_status. "
     "Numeric values only for the numeric keys. No markdown, no prose."
 )
@@ -690,6 +1020,40 @@ def jet_spike_pct(jet_value):
     if not base:
         return None
     return (jet_value - base) / base * 100.0
+
+
+def hdd_stockout_days_remaining():
+    """Calendar days from today to the December 31, 2026 HDD stockout
+    target — the structural enterprise-channel hardware freeze window.
+    Clamped to >= 0 so the countdown reads zero on/after the target
+    rather than going negative."""
+    delta = (HDD_STOCKOUT_TARGET_DATE - date.today()).days
+    return max(delta, 0)
+
+
+def malacca_congestion_delta_pct(intel):
+    """Compute % above the 80-ship/day baseline for the Malacca queue.
+    Returns None if Perplexity did not return a usable ships_waiting
+    value (the engine should not assert a shadow without live data)."""
+    if not intel:
+        return None
+    ships = intel.get("malacca_ships_waiting")
+    if ships is None:
+        return None
+    if not MALACCA_BASELINE_SHIPS:
+        return None
+    return (ships - MALACCA_BASELINE_SHIPS) / MALACCA_BASELINE_SHIPS * 100.0
+
+
+def malacca_shadow_active(intel):
+    """True when the Malacca ships-waiting queue is more than 15% above
+    the 80/day baseline. This is the v12.1 leading-indicator trigger:
+    48-72h lead time before total global manufacturing collapse fires
+    as the Tail Risk trigger."""
+    pct = malacca_congestion_delta_pct(intel)
+    if pct is None:
+        return False
+    return pct > MALACCA_SHADOW_THRESHOLD_PCT
 
 
 def _coerce_number(value):
@@ -834,6 +1198,7 @@ def fetch_perplexity_intel(api_key: str) -> dict:
         "panama_canal_neopanamax_price",
         "urea_spot_price_ton",
         "hormuz_daily_transit_count",
+        "malacca_ships_waiting",
         "helium_spot_price_mcf",
         "asian_pe_pp_resin_spike",
         "jet_fuel_price_ton",
@@ -924,6 +1289,18 @@ def adjust_probabilities(prices: dict, intel: dict | None = None,
     if intel.get("malacca_severity") == "elevated":
         probs["Tail Risk"] += 8
         probs["Base Case"] -= 4
+        probs["Slow Normalization"] -= 4
+
+    # v12.1 Shadow Indicator — congestion >15% above baseline. Fires
+    # even when Perplexity has not flagged severity, because the
+    # ships-waiting queue is the 48-72h leading indicator.
+    if (
+        malacca_shadow_active(intel)
+        and intel.get("malacca_severity") not in ("elevated", "critical")
+    ):
+        probs["Tail Risk"] += 6
+        probs["Base Case"] += 2
+        probs["Best Case"] -= 4
         probs["Slow Normalization"] -= 4
 
     # New tripwires (helium, resins, jet fuel, india rice ban).
@@ -1141,6 +1518,30 @@ def evaluate_playbook(prices: dict, intel: dict | None = None,
             "household": "Monitor situation; no immediate household action "
                          "required, but tighten discretionary import-goods "
                          "spend until status normalizes.",
+        })
+    elif malacca_shadow_active(intel):
+        # v12.1 Shadow tier — fired by ships-waiting > 15% above 80-baseline,
+        # even when Perplexity rates severity below "elevated".
+        ships = intel.get("malacca_ships_waiting")
+        delta_pct = malacca_congestion_delta_pct(intel)
+        actions.append({
+            "level": "warn",
+            "trigger": (
+                f"Strait of Malacca CONGESTION SHADOW — "
+                f"{ships:.0f} ships waiting "
+                f"(+{delta_pct:.1f}% vs 80/day baseline)"
+            ),
+            "business":
+                "Lead-time window opening. Malacca congestion provides "
+                "48-72 hours of warning before total global manufacturing "
+                "collapse can fire as the Tail Risk trigger. Pre-position "
+                "Lombok / Sunda contingency routing now; pull forward "
+                "any in-flight Asia-EU container bookings; brief war-risk "
+                "underwriters.",
+            "household":
+                "Early-warning signal active. Defer discretionary "
+                "import-heavy purchases over the next 72h; lock fuel "
+                "while pump-pricing is still pre-shock.",
         })
 
     if rice_ban == "ACTIVE":
@@ -1656,80 +2057,17 @@ st.markdown(
 st.markdown(render_strategic_outlook(adjusted), unsafe_allow_html=True)
 st.markdown("&nbsp;", unsafe_allow_html=True)
 
-# ---------- COMMODITY TELEMETRY (render only — data already fetched) ----------
-st.markdown('<h3 class="hud-title">◆ Commodity Telemetry</h3>',
-            unsafe_allow_html=True)
+# ---------- v12.1 STRUCTURAL BREAK: 3-COLUMN LAYOUT ----------
+# Column 1: Commodity Telemetry + Equity Proxy Radar + AI Storage HDD Countdown
+# Column 2: Logistics & Inputs Intel + Systemic Cascade Map
+# Column 3: Scenario Probability Matrix + Threshold Monitor
+#
+# All three columns read from the same 4-hour cached snapshot
+# (`prices`, `equity_snapshots`, `equity_changes`, `intel_data`,
+# `adjusted`) computed in the consolidated DATA FETCH block above.
+# st.secrets-loaded api_key remains unchanged.
 
-# Commodity tickers do NOT use baseline fallback — yfinance failures are
-# rare and the pre-crisis $100 Brent / $2,300 Gold reference numbers
-# would mislead viewers if shown as a stand-in. Keep DATA UNAVAILABLE
-# behavior here. Baseline-fallback is reserved for Perplexity intel.
-# Breach flag mirrors the lowest tripwire in the Threshold Monitor.
-brent_v = prices["Brent"]
-ttf_v = prices["TTF"]
-gold_v = prices["Gold"]
-silver_v = prices["Silver"]
-# OECD commercial inventories below the 842 MB operational minimum
-# force Brent to CRITICAL regardless of live spot — price is no longer
-# the primary signal, it's just the rationing mechanism.
-brent_breach = (brent_v is not None and brent_v > 115) or OECD_INVENTORY_BREACH
-commodity_cards = [
-    card_numeric_html(
-        "BRENT CRUDE  (BZ=F)", brent_v, BASELINE["Brent"],
-        "$", True, fmt="{:,.2f}", delta_decimals=2,
-        use_baseline_fallback=False,
-        breach=brent_breach,
-    ),
-    card_numeric_html(
-        "TTF GAS  (TTF=F)", ttf_v, BASELINE["TTF"],
-        "€", True, fmt="{:,.2f}", delta_decimals=2,
-        use_baseline_fallback=False,
-        breach=ttf_v is not None and ttf_v > 65,
-    ),
-    # Gold/Silver: raw yfinance Close, no multipliers, baseline kept at the
-    # pre-crisis $2,300 / $28 reference levels for delta math.
-    card_numeric_html(
-        "GOLD  (GC=F)", gold_v, BASELINE["Gold"],
-        "$", False, fmt="{:,.2f}", delta_decimals=2,
-        use_baseline_fallback=False,
-        breach=gold_v is not None and gold_v > 4600,
-    ),
-    card_numeric_html(
-        "SILVER  (SI=F)", silver_v, BASELINE["Silver"],
-        "$", False, fmt="{:,.2f}", delta_decimals=2,
-        use_baseline_fallback=False,
-        breach=silver_v is not None and silver_v > 75,
-    ),
-]
-st.markdown(
-    '<div class="intel-grid">' + "".join(commodity_cards) + '</div>',
-    unsafe_allow_html=True,
-)
-
-st.markdown("&nbsp;", unsafe_allow_html=True)
-
-# ---------- EQUITY PROXY RADAR ----------
-# Daily % change on these four equities serves as a real-time proxy
-# for the corresponding intel inputs. A WARNING tier (|chg| >= 5%) or
-# CRITICAL tier (|chg| >= 12%) on any of them feeds the probability
-# engine and the Threshold Monitor below.
-st.markdown(
-    '<h3 class="hud-title">◆ Equity Proxy Radar</h3>',
-    unsafe_allow_html=True,
-)
-st.markdown(
-    '<div class="radar-explainer">'
-    "These equities are the most liquid leading indicators for "
-    "physical commodities currently blocked by the Hormuz conflict. "
-    "They reflect institutional &ldquo;smart money&rdquo; pricing in "
-    "shortages before they reach the public news cycle."
-    '</div>',
-    unsafe_allow_html=True,
-)
-
-# equity_snapshots / equity_changes already fetched in the consolidated
-# DATA FETCH block above — render only.
-
+# ----- Module-scope helpers shared across columns -----
 EQUITY_TIER_COLORS = {
     "nominal": "#10b981",
     "warning": "#eab308",
@@ -1751,8 +2089,6 @@ def card_equity_html(ticker_key, snapshot):
     from EQUITY_PROXY_META, explaining the strategic linkage between
     the equity move and the underlying physical-commodity risk."""
     meta = EQUITY_PROXY_META[ticker_key]
-    # meta['name'] already embeds the ticker in parens, so don't
-    # append it again — that would render "(CF)  (CF)".
     label_safe = html.escape(meta["name"])
     proxy_safe = html.escape(meta["proxy_for"])
     context_safe = html.escape(meta.get("why_it_matters", ""))
@@ -1791,8 +2127,6 @@ def card_equity_html(ticker_key, snapshot):
         )
     else:
         change_str = f"{'+' if change >= 0 else ''}{change:.2f}%"
-        # Pill: red for any tier that flags as a breach (warning or
-        # critical), plain grey-flat for nominal.
         delta_class = "delta-bear" if is_breach else "delta-flat"
         delta_html = (
             f'<div class="intel-card-delta {delta_class}">'
@@ -1809,206 +2143,418 @@ def card_equity_html(ticker_key, snapshot):
     )
 
 
-equity_cards = [
-    card_equity_html(key, equity_snapshots[key]) for key in EQUITY_TICKERS
-]
-st.markdown(
-    '<div class="intel-grid">' + "".join(equity_cards) + '</div>',
-    unsafe_allow_html=True,
-)
+def render_threshold_row_html(name, live_html, status_html,
+                              insight_key=None, breached=False,
+                              warning=False):
+    """v12.1 — Threshold Monitor row builder.
 
-st.markdown("&nbsp;", unsafe_allow_html=True)
+    When `breached` (or `warning`) is True and an `insight_key` is
+    provided, the row renders as an inline <details>/<summary> expander
+    with an "Intelligence Insight" block sourced from
+    INTELLIGENCE_INSIGHTS[insight_key]. Click toggles the explanation.
 
-# ---------- PERPLEXITY INTEL (render only — data already fetched) ----------
-st.markdown(
-    '<h3 class="hud-title">◆ Logistics & Inputs Intel '
-    '<span class="intel-tag">PERPLEXITY</span></h3>',
-    unsafe_allow_html=True,
-)
-# intel_data / intel_meta already populated in the consolidated
-# DATA FETCH block above.
+    Otherwise the row renders as a plain non-interactive div with the
+    same visual layout. `live_html` is interpolated as-is (it can carry
+    the baseline-tag span); `name` is HTML-escaped here."""
+    name_safe = html.escape(name)
+    insight_text = (
+        INTELLIGENCE_INSIGHTS.get(insight_key)
+        if insight_key and (breached or warning)
+        else None
+    )
+
+    row_class = "threshold-row"
+    if breached:
+        row_class += " threshold-breached"
+    elif warning:
+        row_class += " threshold-warning"
+
+    summary_inner = (
+        f'<span class="t-name">{name_safe}</span>'
+        f'<span class="t-live">live: {live_html}</span>'
+        f'<span class="t-status">{status_html}</span>'
+    )
+
+    if insight_text:
+        insight_class = "threshold-insight"
+        if warning and not breached:
+            insight_class += " insight-warn"
+        return (
+            f'<details class="{row_class}">'
+            f'<summary class="threshold-summary">{summary_inner}</summary>'
+            f'<div class="{insight_class}">'
+            f'<strong>Intelligence Insight</strong>'
+            f'{html.escape(insight_text)}'
+            f'</div>'
+            f'</details>'
+        )
+    return (
+        f'<div class="{row_class}">'
+        f'<div class="threshold-summary">{summary_inner}</div>'
+        f'</div>'
+    )
 
 
-# All eight intel cards share the same .intel-card class and live in
-# one auto-fit grid. Order: chokepoints & primary inputs first, then
-# strategic blind-spot inputs. Order on screen depends on viewport
-# width (auto-fit wraps cleanly to the next row).
-intel_cards = []
-
-# Per-metric breach flags mirror the lowest tripwire in the Threshold
-# Monitor: a single breach lights the High-Alert border + glow.
+# ----- Per-metric values + breach flags computed once for re-use -----
+brent_v = prices["Brent"]
+ttf_v = prices["TTF"]
+gold_v = prices["Gold"]
+silver_v = prices["Silver"]
 panama_v = intel_data.get("panama_canal_neopanamax_price")
 urea_v = intel_data.get("urea_spot_price_ton")
 hormuz_v = intel_data.get("hormuz_daily_transit_count")
 helium_v = intel_data.get("helium_spot_price_mcf")
 resin_v = intel_data.get("asian_pe_pp_resin_spike")
 jet_v = intel_data.get("jet_fuel_price_ton")
-
-intel_cards.append(card_numeric_html(
-    "PANAMA NEOPANAMAX  (slot $)",
-    panama_v,
-    INTEL_BASELINE["panama_canal_neopanamax_price"],
-    "$", True, fmt="{:,.0f}",
-    breach=panama_v is not None and panama_v > 2_500_000,
-))
-intel_cards.append(card_numeric_html(
-    "UREA SPOT  ($/ton)",
-    urea_v,
-    INTEL_BASELINE["urea_spot_price_ton"],
-    "$", True, fmt="{:,.0f}",
-    breach=urea_v is not None and urea_v > 600,
-))
-# Hormuz: lower transit count is the bearish event, so bearish_on_rise=False.
-intel_cards.append(card_numeric_html(
-    "HORMUZ TRANSITS  (ships/day)",
-    hormuz_v,
-    INTEL_BASELINE["hormuz_daily_transit_count"],
-    "", False, fmt="{:.0f}",
-    breach=hormuz_v is not None and hormuz_v < 30,
-))
-
 malacca_sev = intel_data.get("malacca_severity")
 malacca_status = intel_data.get("malacca_status")
-if malacca_sev is None and malacca_status is None:
-    # Peace-time fallback: render nominal status with (baseline) tag.
-    # The probability engine still sees malacca_severity == None and
-    # therefore does not fire any rules — fallback is display-only.
-    intel_cards.append(card_status_html(
-        "MALACCA STATUS",
-        MALACCA_BASELINE_SEVERITY.upper(),
-        SEVERITY_COLORS.get(MALACCA_BASELINE_SEVERITY, "#9ca3af"),
-        MALACCA_BASELINE_STATUS,
-        is_baseline=True,
-    ))
-else:
-    sev = malacca_sev or "nominal"
-    intel_cards.append(card_status_html(
-        "MALACCA STATUS",
-        sev.upper(),
-        SEVERITY_COLORS.get(sev, "#9ca3af"),
-        malacca_status or "(no status text returned)",
-        breach=sev in ("elevated", "critical"),
-    ))
-
-if helium_exhausted():
-    # Past the 48-day boil-off threshold — render as a status card
-    # showing the dynamic day count and how far past the physical
-    # shelf-life limit we are. The price field is no longer the
-    # meaningful signal; supply integrity is.
-    _he_days = helium_days_elapsed()
-    _days_past = _he_days - HELIUM_BOIL_OFF_DAYS
-    intel_cards.append(card_status_html(
-        "INDUSTRIAL HELIUM (Qatar FM)",
-        f"DAY {_he_days} — EXHAUSTED",
-        "#dc2626",
-        f"{_days_past} days past physical shelf-life limit. "
-        "Semiconductor yield collapse imminent; fab floor reserves "
-        "depleted.",
-        breach=True,
-    ))
-else:
-    intel_cards.append(card_numeric_html(
-        "HELIUM SPOT  ($/Mcf)",
-        helium_v,
-        INTEL_BASELINE["helium_spot_price_mcf"],
-        "$", True, fmt="{:,.0f}",
-        breach=helium_v is not None and helium_v > 2000,
-    ))
-
-# Industrial CO2 byproduct — linked to European ammonia plant capacity.
-# Sub-40% utilisation kills food-grade CO2 production; downstream impact
-# spans meat processing, beverage carbonation, and medical gas supply.
-if CO2_BYPRODUCT_BREACH:
-    intel_cards.append(card_status_html(
-        f"INDUSTRIAL CO2 BYPRODUCT (EU ammonia "
-        f"{EUROPEAN_AMMONIA_CAPACITY_PCT:.0f}%)",
-        "EXHAUSTED",
-        "#dc2626",
-        "Ammonia plants closed; byproduct food-grade CO2 exhausted. "
-        "Meat processing, soft drinks, and medical gas at risk.",
-        breach=True,
-    ))
-else:
-    intel_cards.append(card_status_html(
-        "INDUSTRIAL CO2 BYPRODUCT",
-        "NOMINAL",
-        "#10b981",
-        "European ammonia capacity within nominal range; food-grade "
-        "CO2 byproduct supply stable.",
-    ))
-
-intel_cards.append(card_numeric_html(
-    "PE/PP RESIN SPIKE  (Asia)",
-    resin_v,
-    INTEL_BASELINE["asian_pe_pp_resin_spike"],
-    "", True, fmt="{:.1f}", suffix="%", delta_decimals=1,
-    breach=resin_v is not None and resin_v > 40,
-))
-intel_cards.append(card_numeric_html(
-    "JET FUEL  ($/ton)",
-    jet_v,
-    INTEL_BASELINE["jet_fuel_price_ton"],
-    "$", True, fmt="{:,.0f}",
-    breach=jet_v is not None and jet_v > 1500,
-))
-
+malacca_ships = intel_data.get("malacca_ships_waiting")
 rice_ban = intel_data.get("india_rice_ban_status")
-if rice_ban == "ACTIVE":
-    intel_cards.append(card_status_html(
-        "INDIA RICE EXPORT BAN", "ACTIVE", "#dc2626",
-        "Indian government export ban currently in force on at least "
-        "one rice category. Sovereign food-policy shock active.",
-        breach=True,
-    ))
-elif rice_ban == "INACTIVE":
-    intel_cards.append(card_status_html(
-        "INDIA RICE EXPORT BAN", "INACTIVE", "#10b981",
-        "No active Indian rice export ban currently in force.",
-    ))
-else:
-    # Peace-time fallback: assume INACTIVE and tag as baseline. The
-    # engine still sees india_rice_ban_status == None upstream so the
-    # ACTIVE-only probability shift does not fire.
-    intel_cards.append(card_status_html(
-        "INDIA RICE EXPORT BAN",
-        RICE_BAN_BASELINE,
-        "#10b981",
-        "Peace-time baseline — no active export ban on file.",
-        is_baseline=True,
-    ))
+shadow_active = malacca_shadow_active(intel_data)
+shadow_pct = malacca_congestion_delta_pct(intel_data)
 
-st.markdown(
-    '<div class="intel-grid">' + "".join(intel_cards) + '</div>',
-    unsafe_allow_html=True,
-)
+# OECD inventory breach forces Brent to CRITICAL regardless of spot.
+brent_breach = (brent_v is not None and brent_v > 115) or OECD_INVENTORY_BREACH
 
-if intel_meta["error"]:
+# ----- 3-column shell -----
+col1, col2, col3 = st.columns([1, 1, 1])
+
+# ============================================================
+# COLUMN 1 — Commodity & Equity Proxies
+# ============================================================
+with col1:
     st.markdown(
-        f'<div class="alert-warn" style="margin-top:0.5rem;">'
-        f'INTEL FEED: {intel_meta["error"]}</div>',
+        '<div class="col-section-title">◆ Commodity Telemetry</div>',
         unsafe_allow_html=True,
     )
-elif intel_meta["fetched_at"]:
+    commodity_cards = [
+        card_numeric_html(
+            "BRENT CRUDE  (BZ=F)", brent_v, BASELINE["Brent"],
+            "$", True, fmt="{:,.2f}", delta_decimals=2,
+            use_baseline_fallback=False,
+            breach=brent_breach,
+        ),
+        card_numeric_html(
+            "TTF GAS  (TTF=F)", ttf_v, BASELINE["TTF"],
+            "€", True, fmt="{:,.2f}", delta_decimals=2,
+            use_baseline_fallback=False,
+            breach=ttf_v is not None and ttf_v > 65,
+        ),
+        card_numeric_html(
+            "GOLD  (GC=F)", gold_v, BASELINE["Gold"],
+            "$", False, fmt="{:,.2f}", delta_decimals=2,
+            use_baseline_fallback=False,
+            breach=gold_v is not None and gold_v > 4600,
+        ),
+        card_numeric_html(
+            "SILVER  (SI=F)", silver_v, BASELINE["Silver"],
+            "$", False, fmt="{:,.2f}", delta_decimals=2,
+            use_baseline_fallback=False,
+            breach=silver_v is not None and silver_v > 75,
+        ),
+    ]
     st.markdown(
-        f'<div class="status-strip" style="margin-top:0.5rem;">'
-        f'INTEL CAPTURED: {intel_meta["fetched_at"]} '
-        f'&nbsp;|&nbsp; SOURCE: perplexity sonar-pro</div>',
+        '<div class="intel-grid">' + "".join(commodity_cards) + '</div>',
         unsafe_allow_html=True,
     )
 
-st.markdown("&nbsp;", unsafe_allow_html=True)
+    st.markdown(
+        '<div class="col-section-title">◆ Equity Proxy Radar</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="radar-explainer">'
+        "These equities are the most liquid leading indicators for "
+        "physical commodities currently blocked by the Hormuz conflict. "
+        "They reflect institutional &ldquo;smart money&rdquo; pricing in "
+        "shortages before they reach the public news cycle."
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    equity_cards = [
+        card_equity_html(key, equity_snapshots[key])
+        for key in EQUITY_TICKERS
+    ]
+    st.markdown(
+        '<div class="intel-grid">' + "".join(equity_cards) + '</div>',
+        unsafe_allow_html=True,
+    )
 
-# `adjusted` was computed in the consolidated DATA FETCH block at the
-# top of the page; the Strategic Outlook above and the matrix bars
-# below both read from it.
+    # ----- v12.1 §1: HDD Stockout Countdown ("AI Storage" section) -----
+    # Days remaining from today through Dec 31, 2026 — the structural
+    # enterprise-channel hardware freeze window driven by hyperscaler
+    # contract lockups on WDC/STX 2026 output.
+    _hdd_days = hdd_stockout_days_remaining()
+    _hdd_target_str = HDD_STOCKOUT_TARGET_DATE.strftime("%B %d, %Y")
+    st.markdown(
+        '<div class="col-section-title">◆ AI Storage</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<div class="hdd-countdown">'
+        f'<div class="hdd-countdown-label">'
+        f'Estimated Enterprise HDD Stockout</div>'
+        f'<div class="hdd-countdown-value">{_hdd_days}'
+        f'<span class="hdd-unit">DAYS REMAINING</span></div>'
+        f'<div class="hdd-countdown-target">'
+        f'window closes {_hdd_target_str}</div>'
+        f'<div class="hdd-countdown-alert">'
+        f'95% of WDC/STX output locked to hyperscaler contracts. '
+        f'Standard enterprise channels are in a physical hardware freeze.'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
-# ---------- PROBABILITY MATRIX & THRESHOLDS ----------
-left, right = st.columns([1.2, 1])
+# ============================================================
+# COLUMN 2 — Logistics & Physical Inputs (Helium / CO2)
+# ============================================================
+with col2:
+    st.markdown(
+        '<div class="col-section-title">◆ Logistics &amp; Inputs Intel '
+        '<span class="intel-tag">PERPLEXITY</span></div>',
+        unsafe_allow_html=True,
+    )
 
-with left:
-    st.markdown('<h3 class="hud-title">◆ Scenario Probability Matrix</h3>',
-                unsafe_allow_html=True)
-    for label in ["Best Case", "Slow Normalization", "Base Case", "Tail Risk"]:
+    intel_cards = []
+
+    intel_cards.append(card_numeric_html(
+        "PANAMA NEOPANAMAX  (slot $)",
+        panama_v,
+        INTEL_BASELINE["panama_canal_neopanamax_price"],
+        "$", True, fmt="{:,.0f}",
+        breach=panama_v is not None and panama_v > 2_500_000,
+    ))
+    intel_cards.append(card_numeric_html(
+        "UREA SPOT  ($/ton)",
+        urea_v,
+        INTEL_BASELINE["urea_spot_price_ton"],
+        "$", True, fmt="{:,.0f}",
+        breach=urea_v is not None and urea_v > 600,
+    ))
+    intel_cards.append(card_numeric_html(
+        "HORMUZ TRANSITS  (ships/day)",
+        hormuz_v,
+        INTEL_BASELINE["hormuz_daily_transit_count"],
+        "", False, fmt="{:.0f}",
+        breach=hormuz_v is not None and hormuz_v < 30,
+    ))
+
+    # v12.1 §2: Malacca Shadow Indicator — the upgraded Malacca card.
+    # Three-state precedence (highest → lowest):
+    #   1. Perplexity-flagged "critical" → red CRITICAL card.
+    #   2. Shadow active (ships waiting >15% above 80-baseline) AND
+    #      Perplexity not flagging elevated/critical → 🟡 WARNING:
+    #      CONGESTION SHADOW with the 48-72h lead-time intelligence
+    #      note.
+    #   3. Otherwise existing severity logic (elevated / nominal /
+    #      baseline fallback).
+    if malacca_sev == "critical":
+        intel_cards.append(card_status_html(
+            "MALACCA STATUS",
+            "CRITICAL",
+            SEVERITY_COLORS["critical"],
+            malacca_status or "(no status text returned)",
+            breach=True,
+        ))
+    elif shadow_active and malacca_sev != "elevated":
+        # CONGESTION SHADOW takes precedence over peace-time / nominal
+        # readings when ships_waiting > 80 * 1.15. Tail-Risk lead-time
+        # window is open even if Perplexity has not yet escalated.
+        ships_label = f"{malacca_ships:.0f} ships waiting" if (
+            malacca_ships is not None
+        ) else "ships waiting"
+        delta_label = (
+            f" (+{shadow_pct:.1f}% vs 80/day baseline)"
+            if shadow_pct is not None else ""
+        )
+        intel_cards.append(card_status_html(
+            "MALACCA STATUS",
+            "🟡 WARNING: CONGESTION SHADOW",
+            "#eab308",
+            f"{ships_label}{delta_label}. Malacca congestion provides "
+            "48–72 hours of lead time before total global manufacturing "
+            "collapse (Tail Risk Trigger).",
+            breach=True,
+        ))
+    elif malacca_sev is None and malacca_status is None:
+        intel_cards.append(card_status_html(
+            "MALACCA STATUS",
+            MALACCA_BASELINE_SEVERITY.upper(),
+            SEVERITY_COLORS.get(MALACCA_BASELINE_SEVERITY, "#9ca3af"),
+            MALACCA_BASELINE_STATUS,
+            is_baseline=True,
+        ))
+    else:
+        sev = malacca_sev or "nominal"
+        intel_cards.append(card_status_html(
+            "MALACCA STATUS",
+            sev.upper(),
+            SEVERITY_COLORS.get(sev, "#9ca3af"),
+            malacca_status or "(no status text returned)",
+            breach=sev == "elevated",
+        ))
+
+    if helium_exhausted():
+        _he_days = helium_days_elapsed()
+        _days_past = _he_days - HELIUM_BOIL_OFF_DAYS
+        intel_cards.append(card_status_html(
+            "INDUSTRIAL HELIUM (Qatar FM)",
+            f"DAY {_he_days} — EXHAUSTED",
+            "#dc2626",
+            f"{_days_past} days past physical shelf-life limit. "
+            "Semiconductor yield collapse imminent; fab floor reserves "
+            "depleted.",
+            breach=True,
+        ))
+    else:
+        intel_cards.append(card_numeric_html(
+            "HELIUM SPOT  ($/Mcf)",
+            helium_v,
+            INTEL_BASELINE["helium_spot_price_mcf"],
+            "$", True, fmt="{:,.0f}",
+            breach=helium_v is not None and helium_v > 2000,
+        ))
+
+    if CO2_BYPRODUCT_BREACH:
+        intel_cards.append(card_status_html(
+            f"INDUSTRIAL CO2 BYPRODUCT (EU ammonia "
+            f"{EUROPEAN_AMMONIA_CAPACITY_PCT:.0f}%)",
+            "EXHAUSTED",
+            "#dc2626",
+            "Ammonia plants closed; byproduct food-grade CO2 exhausted. "
+            "Meat processing, soft drinks, and medical gas at risk.",
+            breach=True,
+        ))
+    else:
+        intel_cards.append(card_status_html(
+            "INDUSTRIAL CO2 BYPRODUCT",
+            "NOMINAL",
+            "#10b981",
+            "European ammonia capacity within nominal range; food-grade "
+            "CO2 byproduct supply stable.",
+        ))
+
+    intel_cards.append(card_numeric_html(
+        "PE/PP RESIN SPIKE  (Asia)",
+        resin_v,
+        INTEL_BASELINE["asian_pe_pp_resin_spike"],
+        "", True, fmt="{:.1f}", suffix="%", delta_decimals=1,
+        breach=resin_v is not None and resin_v > 40,
+    ))
+    intel_cards.append(card_numeric_html(
+        "JET FUEL  ($/ton)",
+        jet_v,
+        INTEL_BASELINE["jet_fuel_price_ton"],
+        "$", True, fmt="{:,.0f}",
+        breach=jet_v is not None and jet_v > 1500,
+    ))
+
+    if rice_ban == "ACTIVE":
+        intel_cards.append(card_status_html(
+            "INDIA RICE EXPORT BAN", "ACTIVE", "#dc2626",
+            "Indian government export ban currently in force on at "
+            "least one rice category. Sovereign food-policy shock "
+            "active.",
+            breach=True,
+        ))
+    elif rice_ban == "INACTIVE":
+        intel_cards.append(card_status_html(
+            "INDIA RICE EXPORT BAN", "INACTIVE", "#10b981",
+            "No active Indian rice export ban currently in force.",
+        ))
+    else:
+        intel_cards.append(card_status_html(
+            "INDIA RICE EXPORT BAN",
+            RICE_BAN_BASELINE,
+            "#10b981",
+            "Peace-time baseline — no active export ban on file.",
+            is_baseline=True,
+        ))
+
+    st.markdown(
+        '<div class="intel-grid">' + "".join(intel_cards) + '</div>',
+        unsafe_allow_html=True,
+    )
+
+    if intel_meta["error"]:
+        st.markdown(
+            f'<div class="alert-warn" style="margin-top:0.5rem;">'
+            f'INTEL FEED: {intel_meta["error"]}</div>',
+            unsafe_allow_html=True,
+        )
+    elif intel_meta["fetched_at"]:
+        st.markdown(
+            f'<div class="status-strip" style="margin-top:0.5rem;">'
+            f'INTEL CAPTURED: {intel_meta["fetched_at"]} '
+            f'&nbsp;|&nbsp; SOURCE: perplexity sonar-pro</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ----- v12.1 §3: Systemic Cascade Map (Energy → Medical) -----
+    # Visual chain of physical dependencies: natural gas drives
+    # ammonia; ammonia carries food-grade CO2 as byproduct; that CO2
+    # is what carbonates beverages, packs meat, and supplies medical
+    # gas. When EU ammonia capacity < 40%, the CO2 and Meat/Medical
+    # nodes flip RED to mark the active downstream collapse.
+    _cascade_red_class = "cascade-red" if CO2_BYPRODUCT_BREACH else ""
+    if CO2_BYPRODUCT_BREACH:
+        _cascade_note = (
+            f'<div class="cascade-trigger-note cascade-active">'
+            f'<strong style="color:#fca5a5;">▼ CASCADE ACTIVE</strong> '
+            f'— EU ammonia at {EUROPEAN_AMMONIA_CAPACITY_PCT:.0f}% '
+            f'(below {EUROPEAN_AMMONIA_THRESHOLD_PCT:.0f}% threshold). '
+            f'Food-grade CO2 byproduct is exhausted; downstream nodes '
+            f'(meat shelf-life, beverage carbonation, MRI cryogenics) '
+            f'all degrade in parallel.'
+            f'</div>'
+        )
+    else:
+        _cascade_note = (
+            f'<div class="cascade-trigger-note">'
+            f'EU ammonia capacity at {EUROPEAN_AMMONIA_CAPACITY_PCT:.0f}% '
+            f'(threshold {EUROPEAN_AMMONIA_THRESHOLD_PCT:.0f}%). '
+            f'Cascade nodes nominal — food-grade CO2 byproduct supply '
+            f'stable.'
+            f'</div>'
+        )
+    st.markdown(
+        f'<div class="cascade-container">'
+        f'<div class="col-section-title" '
+        f'style="margin:0 0 0.35rem 0;border:none;padding:0;">'
+        f'◆ Systemic Cascade: Energy to Medical</div>'
+        f'<div class="cascade-flow">'
+        f'<div class="cascade-node cascade-source">'
+        f'<div class="cascade-node-title">Source</div>'
+        f'Energy<br>(Natural Gas)</div>'
+        f'<div class="cascade-arrow">▶</div>'
+        f'<div class="cascade-node cascade-mid">'
+        f'<div class="cascade-node-title">Stage 2</div>'
+        f'Ammonia<br>Production</div>'
+        f'<div class="cascade-arrow">▶</div>'
+        f'<div class="cascade-node cascade-mid {_cascade_red_class}">'
+        f'<div class="cascade-node-title">Byproduct</div>'
+        f'CO₂<br>Byproduct</div>'
+        f'<div class="cascade-arrow">▶</div>'
+        f'<div class="cascade-node cascade-sink {_cascade_red_class}">'
+        f'<div class="cascade-node-title">Endpoint</div>'
+        f'Meat /<br>Medical Gas</div>'
+        f'</div>'
+        f'{_cascade_note}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+# ============================================================
+# COLUMN 3 — Threshold Monitor & Scenario Probability
+# ============================================================
+with col3:
+    st.markdown(
+        '<div class="col-section-title">◆ Scenario Probability Matrix</div>',
+        unsafe_allow_html=True,
+    )
+    for label in ["Best Case", "Slow Normalization",
+                  "Base Case", "Tail Risk"]:
         render_prob_bar(label, adjusted[label], BASE_PROBS[label])
 
     drift = sum(abs(adjusted[k] - BASE_PROBS[k]) for k in BASE_PROBS) / 2
@@ -2019,243 +2565,245 @@ with left:
     if intel_data.get("india_rice_ban_status") == "ACTIVE":
         notes.append('<span style="color:#dc2626;">'
                      'RICE BAN — STAPLES SHOCK</span>')
-    drift_note = (" &nbsp;|&nbsp; " + " &nbsp;·&nbsp; ".join(notes)) if notes else ""
+    if shadow_active and intel_data.get("malacca_severity") not in (
+        "elevated", "critical"
+    ):
+        notes.append('<span style="color:#eab308;">'
+                     'CONGESTION SHADOW — 48-72h LEAD WINDOW</span>')
+    drift_note = (
+        " &nbsp;|&nbsp; " + " &nbsp;·&nbsp; ".join(notes)
+    ) if notes else ""
     st.markdown(
         f'<div class="status-strip">SCENARIO DRIFT vs BASELINE: '
-        f'<span style="color:#00ffd1;">{drift:.1f} pts</span>{drift_note}</div>',
+        f'<span style="color:#00ffd1;">{drift:.1f} pts</span>'
+        f'{drift_note}</div>',
         unsafe_allow_html=True,
     )
 
-with right:
-    st.markdown('<h3 class="hud-title">◆ Threshold Monitor</h3>',
-                unsafe_allow_html=True)
-    urea_v = intel_data.get("urea_spot_price_ton")
-    hormuz_v = intel_data.get("hormuz_daily_transit_count")
-    panama_v = intel_data.get("panama_canal_neopanamax_price")
-    helium_v = intel_data.get("helium_spot_price_mcf")
-    resin_v = intel_data.get("asian_pe_pp_resin_spike")
-    jet_v = intel_data.get("jet_fuel_price_ton")
-    malacca_sev = intel_data.get("malacca_severity")
-    rice_ban_v = intel_data.get("india_rice_ban_status")
+    # ----- Threshold Monitor (with Intelligence Insight expanders) -----
+    st.markdown(
+        '<div class="col-section-title">◆ Threshold Monitor</div>',
+        unsafe_allow_html=True,
+    )
 
-    # 7-tuple per threshold: (name, val, thr, cur, op, sfx, baseline).
-    # baseline=None → keep DATA UNAVAILABLE behavior (yfinance tickers).
+    # 8-tuple: (name, val, thr, cur, op, sfx, baseline, insight_key).
+    # baseline=None → DATA UNAVAILABLE on missing val (yfinance feed).
     # baseline=number → fall back to baseline display when val is None
-    # (Perplexity intel). The probability engine still sees None upstream
-    # so the math is unchanged.
+    # (Perplexity intel) — engine still sees None upstream so the math
+    # is unchanged. insight_key drives the v12.1 "Intelligence Insight"
+    # expander shown when the row is BREACHED or in WARNING tier.
     thresholds = [
-        ("Brent > $130", prices["Brent"], 130, "$", "gt", "", None),
-        ("Brent > $115", prices["Brent"], 115, "$", "gt", "", None),
-        ("TTF > €80", prices["TTF"], 80, "€", "gt", "", None),
-        ("TTF > €65", prices["TTF"], 65, "€", "gt", "", None),
-        ("Gold > $4600", prices["Gold"], 4600, "$", "gt", "", None),
-        ("Silver > $75", prices["Silver"], 75, "$", "gt", "", None),
+        ("Brent > $130", prices["Brent"], 130, "$", "gt", "", None, "brent"),
+        ("Brent > $115", prices["Brent"], 115, "$", "gt", "", None, "brent"),
+        ("TTF > €80", prices["TTF"], 80, "€", "gt", "", None, "ttf"),
+        ("TTF > €65", prices["TTF"], 65, "€", "gt", "", None, "ttf"),
+        ("Gold > $4600", prices["Gold"], 4600, "$", "gt", "", None, "gold"),
+        ("Silver > $75", prices["Silver"], 75, "$", "gt", "", None, "silver"),
         ("Urea > $800/t", urea_v, 800, "$", "gt", "",
-         INTEL_BASELINE["urea_spot_price_ton"]),
+         INTEL_BASELINE["urea_spot_price_ton"], "urea"),
         ("Urea > $600/t", urea_v, 600, "$", "gt", "",
-         INTEL_BASELINE["urea_spot_price_ton"]),
+         INTEL_BASELINE["urea_spot_price_ton"], "urea"),
         ("Hormuz < 30/day", hormuz_v, 30, "", "lt", "",
-         INTEL_BASELINE["hormuz_daily_transit_count"]),
+         INTEL_BASELINE["hormuz_daily_transit_count"], "hormuz"),
         ("Hormuz < 20/day", hormuz_v, 20, "", "lt", "",
-         INTEL_BASELINE["hormuz_daily_transit_count"]),
+         INTEL_BASELINE["hormuz_daily_transit_count"], "hormuz"),
         ("Panama slot > $2.5M", panama_v, 2_500_000, "$", "gt", "",
-         INTEL_BASELINE["panama_canal_neopanamax_price"]),
+         INTEL_BASELINE["panama_canal_neopanamax_price"], "panama"),
         ("Panama slot > $4.0M", panama_v, 4_000_000, "$", "gt", "",
-         INTEL_BASELINE["panama_canal_neopanamax_price"]),
+         INTEL_BASELINE["panama_canal_neopanamax_price"], "panama"),
         ("Helium > $2000/Mcf", helium_v, 2000, "$", "gt", "",
-         INTEL_BASELINE["helium_spot_price_mcf"]),
+         INTEL_BASELINE["helium_spot_price_mcf"], "helium"),
         ("Resins > 40% spike", resin_v, 40, "", "gt", "%",
-         INTEL_BASELINE["asian_pe_pp_resin_spike"]),
+         INTEL_BASELINE["asian_pe_pp_resin_spike"], "resin"),
         ("Jet Fuel > $1500/t", jet_v, 1500, "$", "gt", "",
-         INTEL_BASELINE["jet_fuel_price_ton"]),
+         INTEL_BASELINE["jet_fuel_price_ton"], "jet"),
     ]
-    for name, val, thr, cur, op, sfx, baseline_val in thresholds:
+    threshold_rows_html = []
+    for name, val, thr, cur, op, sfx, baseline_val, insight_key in thresholds:
         is_fallback = val is None and baseline_val is not None
         display_val = baseline_val if is_fallback else val
 
         if display_val is None:
-            status = '<span style="color:#6b7280;">— DATA UNAVAILABLE</span>'
-            live = "—"
+            status_html = (
+                '<span style="color:#6b7280;">— DATA UNAVAILABLE</span>'
+            )
+            live_html = "—"
+            row_breached = False
         else:
-            breached = (
+            row_breached = (
                 (op == "gt" and display_val > thr)
                 or (op == "lt" and display_val < thr)
             )
-            if breached:
-                status = '<span style="color:#dc2626;">● BREACHED</span>'
+            if row_breached:
+                status_html = (
+                    '<span style="color:#dc2626;">● BREACHED</span>'
+                )
             else:
-                status = '<span style="color:#10b981;">● NOMINAL</span>'
+                status_html = (
+                    '<span style="color:#10b981;">● NOMINAL</span>'
+                )
             if cur:
-                live = f"{cur}{display_val:,.0f}{sfx}"
+                live_html = f"{cur}{display_val:,.0f}{sfx}"
             else:
-                live = (
+                live_html = (
                     f"{display_val:,.1f}{sfx}"
                     if sfx == "%"
                     else f"{display_val:.0f}"
                 )
             if is_fallback:
-                live += ' <span class="baseline-tag">(baseline)</span>'
-        st.markdown(
-            f'<div class="prob-bar-container" style="display:flex;'
-            f'justify-content:space-between;font-family:Courier New,monospace;'
-            f'font-size:0.8rem;">'
-            f'<span style="color:#9ca3af;">{name}</span>'
-            f'<span style="color:#9ca3af;">live: {live}</span>'
-            f'<span>{status}</span></div>',
-            unsafe_allow_html=True,
-        )
+                live_html += (
+                    ' <span class="baseline-tag">(baseline)</span>'
+                )
+        threshold_rows_html.append(render_threshold_row_html(
+            name, live_html, status_html,
+            insight_key=insight_key, breached=row_breached,
+        ))
 
-    # Malacca qualitative threshold row — fall back to nominal baseline
-    # if Perplexity returned no severity flag.
-    if malacca_sev is None:
+    # Malacca severity row — three-state including the new shadow tier.
+    if malacca_sev == "critical":
+        m_status = (
+            '<span style="color:#dc2626;">● BREACHED (CRITICAL)</span>'
+        )
+        m_live = "critical"
+        m_breach, m_warn, m_key = True, False, "malacca_critical"
+    elif shadow_active and malacca_sev != "elevated":
+        m_status = (
+            '<span style="color:#eab308;">'
+            '● WARNING (CONGESTION SHADOW)</span>'
+        )
+        if shadow_pct is not None:
+            m_live = f"+{shadow_pct:.1f}% vs 80/day baseline"
+        else:
+            m_live = "shadow active"
+        m_breach, m_warn, m_key = False, True, "malacca_shadow"
+    elif malacca_sev == "elevated":
+        m_status = '<span style="color:#eab308;">● ELEVATED</span>'
+        m_live = "elevated"
+        m_breach, m_warn, m_key = False, True, "malacca_critical"
+    elif malacca_sev is None:
         m_status = '<span style="color:#10b981;">● NOMINAL</span>'
         m_live = (
             f'{MALACCA_BASELINE_SEVERITY} '
             f'<span class="baseline-tag">(baseline)</span>'
         )
-    elif malacca_sev == "critical":
-        m_status = '<span style="color:#dc2626;">● BREACHED (CRITICAL)</span>'
-        m_live = "critical"
-    elif malacca_sev == "elevated":
-        m_status = '<span style="color:#eab308;">● ELEVATED</span>'
-        m_live = "elevated"
+        m_breach, m_warn, m_key = False, False, None
     else:
         m_status = '<span style="color:#10b981;">● NOMINAL</span>'
         m_live = "nominal"
-    st.markdown(
-        f'<div class="prob-bar-container" style="display:flex;'
-        f'justify-content:space-between;font-family:Courier New,monospace;'
-        f'font-size:0.8rem;">'
-        f'<span style="color:#9ca3af;">Malacca severity</span>'
-        f'<span style="color:#9ca3af;">live: {m_live}</span>'
-        f'<span>{m_status}</span></div>',
-        unsafe_allow_html=True,
-    )
+        m_breach, m_warn, m_key = False, False, None
+    threshold_rows_html.append(render_threshold_row_html(
+        "Malacca severity", m_live, m_status,
+        insight_key=m_key, breached=m_breach, warning=m_warn,
+    ))
 
-    # India rice ban qualitative threshold row — fall back to INACTIVE
-    # baseline when Perplexity returned no usable flag.
-    if rice_ban_v is None:
+    # India rice ban row.
+    if rice_ban is None:
         r_status = '<span style="color:#10b981;">● NOMINAL</span>'
         r_live = (
             f'{RICE_BAN_BASELINE} '
             f'<span class="baseline-tag">(baseline)</span>'
         )
-    elif rice_ban_v == "ACTIVE":
-        r_status = '<span style="color:#dc2626;">● BREACHED (ACTIVE)</span>'
+        r_breach, r_key = False, None
+    elif rice_ban == "ACTIVE":
+        r_status = (
+            '<span style="color:#dc2626;">● BREACHED (ACTIVE)</span>'
+        )
         r_live = "ACTIVE"
+        r_breach, r_key = True, "rice"
     else:
         r_status = '<span style="color:#10b981;">● NOMINAL</span>'
         r_live = "INACTIVE"
-    st.markdown(
-        f'<div class="prob-bar-container" style="display:flex;'
-        f'justify-content:space-between;font-family:Courier New,monospace;'
-        f'font-size:0.8rem;">'
-        f'<span style="color:#9ca3af;">India rice ban</span>'
-        f'<span style="color:#9ca3af;">live: {r_live}</span>'
-        f'<span>{r_status}</span></div>',
-        unsafe_allow_html=True,
-    )
+        r_breach, r_key = False, None
+    threshold_rows_html.append(render_threshold_row_html(
+        "India rice ban", r_live, r_status,
+        insight_key=r_key, breached=r_breach,
+    ))
 
-    # ----- v11 physical-logic gates -----
-    # OECD commercial inventory operational minimum
+    # OECD commercial inventory row.
     if OECD_INVENTORY_BREACH:
-        oecd_live = f"< {OECD_INVENTORY_OPERATIONAL_MIN_MB} MB"
+        oecd_live = f"&lt; {OECD_INVENTORY_OPERATIONAL_MIN_MB} MB"
         oecd_status = (
             '<span style="color:#dc2626;">● BREACHED (CRITICAL)</span>'
         )
+        oecd_breach, oecd_key = True, "oecd"
     else:
-        oecd_live = f">= {OECD_INVENTORY_OPERATIONAL_MIN_MB} MB"
+        oecd_live = f"&gt;= {OECD_INVENTORY_OPERATIONAL_MIN_MB} MB"
         oecd_status = '<span style="color:#10b981;">● NOMINAL</span>'
-    st.markdown(
-        f'<div class="prob-bar-container" style="display:flex;'
-        f'justify-content:space-between;font-family:Courier New,monospace;'
-        f'font-size:0.8rem;">'
-        f'<span style="color:#9ca3af;">'
-        f'OECD commercial inv &lt; {OECD_INVENTORY_OPERATIONAL_MIN_MB} MB'
-        f'</span>'
-        f'<span style="color:#9ca3af;">live: {oecd_live}</span>'
-        f'<span>{oecd_status}</span></div>',
-        unsafe_allow_html=True,
-    )
+        oecd_breach, oecd_key = False, None
+    threshold_rows_html.append(render_threshold_row_html(
+        f"OECD commercial inv < {OECD_INVENTORY_OPERATIONAL_MIN_MB} MB",
+        oecd_live, oecd_status,
+        insight_key=oecd_key, breached=oecd_breach,
+    ))
 
-    # EU ammonia capacity → Industrial CO2 byproduct gate
+    # EU ammonia → CO2 byproduct row.
     if CO2_BYPRODUCT_BREACH:
         co2_live = (
             f"{EUROPEAN_AMMONIA_CAPACITY_PCT:.0f}% "
-            f"(< {EUROPEAN_AMMONIA_THRESHOLD_PCT:.0f}%)"
+            f"(&lt; {EUROPEAN_AMMONIA_THRESHOLD_PCT:.0f}%)"
         )
         co2_status = (
             '<span style="color:#dc2626;">'
             '● BREACHED (CO2 EXHAUSTED)</span>'
         )
+        co2_breach, co2_key = True, "co2"
     else:
         co2_live = (
             f"{EUROPEAN_AMMONIA_CAPACITY_PCT:.0f}% "
-            f"(>= {EUROPEAN_AMMONIA_THRESHOLD_PCT:.0f}%)"
+            f"(&gt;= {EUROPEAN_AMMONIA_THRESHOLD_PCT:.0f}%)"
         )
         co2_status = '<span style="color:#10b981;">● NOMINAL</span>'
-    st.markdown(
-        f'<div class="prob-bar-container" style="display:flex;'
-        f'justify-content:space-between;font-family:Courier New,monospace;'
-        f'font-size:0.8rem;">'
-        f'<span style="color:#9ca3af;">'
-        f'EU ammonia capacity &lt; {EUROPEAN_AMMONIA_THRESHOLD_PCT:.0f}%'
-        f'</span>'
-        f'<span style="color:#9ca3af;">live: {co2_live}</span>'
-        f'<span>{co2_status}</span></div>',
-        unsafe_allow_html=True,
-    )
+        co2_breach, co2_key = False, None
+    threshold_rows_html.append(render_threshold_row_html(
+        f"EU ammonia capacity < {EUROPEAN_AMMONIA_THRESHOLD_PCT:.0f}%",
+        co2_live, co2_status,
+        insight_key=co2_key, breached=co2_breach,
+    ))
 
-    # Helium boil-off (days since QA force majeure)
+    # Helium boil-off (days since QA force majeure).
     _he_days = helium_days_elapsed()
     if helium_exhausted():
         he_live = f"day {_he_days} / {HELIUM_BOIL_OFF_DAYS}"
         he_status = (
             '<span style="color:#dc2626;">● BREACHED (EXHAUSTED)</span>'
         )
+        he_breach, he_key = True, "helium_boiloff"
     else:
         he_live = f"day {_he_days} / {HELIUM_BOIL_OFF_DAYS}"
         he_status = '<span style="color:#10b981;">● NOMINAL</span>'
-    st.markdown(
-        f'<div class="prob-bar-container" style="display:flex;'
-        f'justify-content:space-between;font-family:Courier New,monospace;'
-        f'font-size:0.8rem;">'
-        f'<span style="color:#9ca3af;">Helium boil-off (QA FM)</span>'
-        f'<span style="color:#9ca3af;">live: {he_live}</span>'
-        f'<span>{he_status}</span></div>',
-        unsafe_allow_html=True,
-    )
+        he_breach, he_key = False, None
+    threshold_rows_html.append(render_threshold_row_html(
+        "Helium boil-off (QA FM)", he_live, he_status,
+        insight_key=he_key, breached=he_breach,
+    ))
 
-    # Jet fuel "Payload Displacement" gate (>55% above baseline)
+    # Jet fuel "Payload Displacement" gate (>55% above baseline).
     _jet_pct_tm = jet_spike_pct(jet_v)
     if _jet_pct_tm is None:
         jp_live = "—"
         jp_status = (
             '<span style="color:#6b7280;">— DATA UNAVAILABLE</span>'
         )
+        jp_breach, jp_key = False, None
     elif _jet_pct_tm > JET_FUEL_SPIKE_THRESHOLD_PCT:
         jp_live = f"+{_jet_pct_tm:.1f}% vs baseline"
         jp_status = (
             '<span style="color:#dc2626;">'
             '● BREACHED (PAYLOAD DISPLACEMENT)</span>'
         )
+        jp_breach, jp_key = True, "jet_displacement"
     else:
         jp_live = f"+{_jet_pct_tm:.1f}% vs baseline"
         jp_status = '<span style="color:#10b981;">● NOMINAL</span>'
-    st.markdown(
-        f'<div class="prob-bar-container" style="display:flex;'
-        f'justify-content:space-between;font-family:Courier New,monospace;'
-        f'font-size:0.8rem;">'
-        f'<span style="color:#9ca3af;">'
-        f'Jet fuel spike &gt; {JET_FUEL_SPIKE_THRESHOLD_PCT}%</span>'
-        f'<span style="color:#9ca3af;">live: {jp_live}</span>'
-        f'<span>{jp_status}</span></div>',
-        unsafe_allow_html=True,
-    )
+        jp_breach, jp_key = False, None
+    threshold_rows_html.append(render_threshold_row_html(
+        f"Jet fuel spike > {JET_FUEL_SPIKE_THRESHOLD_PCT}%",
+        jp_live, jp_status,
+        insight_key=jp_key, breached=jp_breach,
+    ))
 
-    # ----- Equity Proxy Radar rows -----
-    # Show daily spike + tier glyph instead of raw dollar price.
-    # Severity tiers: |Δ| < 5% NOMINAL · >= 5% WARNING · >= 12% CRITICAL.
+    # Equity Proxy Radar rows. CRITICAL (|Δ|>=12%) and WARNING
+    # (|Δ|>=5%) tiers both unfold the equity_critical insight.
     for ticker_key in EQUITY_TICKERS:
         meta = EQUITY_PROXY_META[ticker_key]
         change = equity_changes.get(ticker_key)
@@ -2266,25 +2814,28 @@ with right:
             eq_status = (
                 '<span style="color:#6b7280;">— DATA UNAVAILABLE</span>'
             )
+            eq_breach, eq_warn, eq_key = False, False, None
         else:
-            eq_live = f"{'+' if change >= 0 else ''}{change:.2f}% spike"
+            eq_live = (
+                f"{'+' if change >= 0 else ''}{change:.2f}% spike"
+            )
             color = EQUITY_TIER_COLORS.get(sev, "#9ca3af")
             glyph = EQUITY_TIER_GLYPH.get(sev, "●")
             tier = (sev or "nominal").upper()
             eq_status = (
                 f'<span style="color: {color};">{glyph} {tier}</span>'
             )
+            eq_breach = sev == "critical"
+            eq_warn = sev == "warning"
+            eq_key = "equity_critical" if (eq_breach or eq_warn) else None
 
         row_label = f"{ticker_key} ({meta['proxy_for']})"
-        st.markdown(
-            f'<div class="prob-bar-container" style="display:flex;'
-            f'justify-content:space-between;font-family:Courier New,monospace;'
-            f'font-size:0.8rem;">'
-            f'<span style="color:#9ca3af;">{html.escape(row_label)}</span>'
-            f'<span style="color:#9ca3af;">live: {eq_live}</span>'
-            f'<span>{eq_status}</span></div>',
-            unsafe_allow_html=True,
-        )
+        threshold_rows_html.append(render_threshold_row_html(
+            row_label, eq_live, eq_status,
+            insight_key=eq_key, breached=eq_breach, warning=eq_warn,
+        ))
+
+    st.markdown("".join(threshold_rows_html), unsafe_allow_html=True)
 
 st.markdown("&nbsp;", unsafe_allow_html=True)
 
