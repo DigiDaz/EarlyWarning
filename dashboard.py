@@ -1006,8 +1006,23 @@ CUSTOM_CSS = """
         margin-top: -0.5rem;
         margin-bottom: 1rem;
     }
-    .hud-subtitle .intel-armed {
+    .hud-subtitle .intel-armed,
+    .hud-subtitle .intel-live {
         color: #00ffd1;
+        font-weight: 700;
+        letter-spacing: 2px;
+    }
+    /* Fix C-4 — the badge now reflects live-fraction + override
+       count, not the credentials check. Three tiers, each with its
+       own colour so the user can read the dashboard's truthfulness
+       at a glance. */
+    .hud-subtitle .intel-mixed {
+        color: #ffa500;
+        font-weight: 700;
+        letter-spacing: 2px;
+    }
+    .hud-subtitle .intel-degraded {
+        color: #fca5a5;
         font-weight: 700;
         letter-spacing: 2px;
     }
@@ -1089,6 +1104,85 @@ CUSTOM_CSS = """
         font-size: 0.83rem;
         line-height: 1.55;
         margin-top: auto;
+    }
+
+    /* Fix C-2 — Visible stale state. Cards with no live read must
+       not look like nominal cards displaying a peace-time price.
+       Dashed grey border, dimmed surface, "NO LIVE DATA" headline,
+       and a hatched "STALE" badge so a 2-second glance never
+       mistakes stale data for live nominal. */
+    .intel-card-stale {
+        background: rgba(255, 255, 255, 0.025) !important;
+        border: 1px dashed rgba(156, 163, 175, 0.5) !important;
+        border-left: 1px dashed rgba(156, 163, 175, 0.5) !important;
+        box-shadow: none !important;
+        animation: none !important;
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+    }
+    .intel-card-stale .intel-card-label {
+        color: #6b7280;
+    }
+    .intel-card-stale-headline {
+        color: #6b7280;
+        font-size: 1.15rem;
+        line-height: 1.25;
+        letter-spacing: 1px;
+        margin-bottom: 0.45rem;
+        text-transform: uppercase;
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        flex-wrap: wrap;
+    }
+    .stale-badge {
+        font-family: 'Courier New', monospace;
+        font-size: 0.6rem;
+        letter-spacing: 1.5px;
+        font-weight: 700;
+        color: #1f2937;
+        padding: 2px 8px;
+        border-radius: 2px;
+        text-transform: uppercase;
+        background-color: #9ca3af;
+        background-image: repeating-linear-gradient(
+            45deg,
+            rgba(0, 0, 0, 0.18) 0,
+            rgba(0, 0, 0, 0.18) 4px,
+            transparent 4px,
+            transparent 8px
+        );
+        border: 1px solid rgba(0, 0, 0, 0.15);
+    }
+    .intel-card-stale-meta {
+        color: #6b7280;
+        font-size: 0.7rem;
+        line-height: 1.45;
+        margin-top: 0.4rem;
+        font-style: italic;
+    }
+    .intel-card-stale-meta strong {
+        color: #9ca3af;
+        font-style: normal;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-size: 0.62rem;
+    }
+    .intel-card-caption.caption-stale {
+        color: #9ca3af;
+        border-top-color: rgba(156, 163, 175, 0.18);
+    }
+    .intel-card-caption.caption-stale .caption-tag {
+        background-color: #6b7280;
+        color: #f3f4f6;
+        background-image: repeating-linear-gradient(
+            45deg,
+            rgba(0, 0, 0, 0.18) 0,
+            rgba(0, 0, 0, 0.18) 3px,
+            transparent 3px,
+            transparent 6px
+        );
     }
 </style>
 """
@@ -1350,16 +1444,21 @@ MALACCA_BASELINE_STATUS = (
 )
 RICE_BAN_BASELINE = "INACTIVE"
 
-# BASE_PROBS reset for the post-April-29 extended-blockade scenario.
-# US rejected the April 27th Iranian offer in favor of an extended
-# Hormuz blockade — Best Case is no longer viable, weight collapses
-# into Base Case + Tail Risk. Engine adjustments (equity tiers,
-# Malacca override, helium exhaustion, etc.) still apply on top.
+# Fix C-5 — un-pinned base probabilities so the engine has room to
+# move in BOTH directions. The v11 hard-pin {Best 0, Slow 0, Base
+# 60, Tail 40} prevented the matrix from ever reflecting an
+# improving real-world picture; with Urea at $685 (well below the
+# Tail trigger), Jet at $989 (well below $1500), and TTF at €46
+# (BELOW the €52 baseline), the engine should be able to drift
+# toward Slow Normalization or Best Case but mathematically could
+# not. v11 starting weights are restored here. The "blockade
+# extension" event is now represented as a starting tilt the
+# downside rules can offset, not a hard zero.
 BASE_PROBS = {
-    "Best Case": 0.0,
-    "Slow Normalization": 0.0,
-    "Base Case": 60.0,
-    "Tail Risk": 40.0,
+    "Best Case": 5.0,
+    "Slow Normalization": 15.0,
+    "Base Case": 50.0,
+    "Tail Risk": 30.0,
 }
 
 PROB_COLORS = {
@@ -1745,10 +1844,30 @@ def helium_days_elapsed():
 
 
 def helium_exhausted():
-    """True once elapsed days meet/exceed the 48-day liquid-helium
-    boil-off threshold. v11 brief: at >= 48 days, fab and MRI
-    stockpiles drained — semiconductor yield collapse is imminent."""
-    return helium_days_elapsed() >= HELIUM_BOIL_OFF_DAYS
+    """Fix C-5 — date math AND no contradicting live signal.
+
+    v11 brief: at >= 48 days past the Qatar force majeure, fab and
+    MRI stockpiles drain — semiconductor yield collapse is imminent.
+    But the calendar alone is no longer a defensible default: if
+    live helium spot has fallen back below $1,000/Mcf, supply is
+    plausibly recovering and 'exhausted' should not auto-fire on
+    date math alone.
+
+    Live signal source: the module-level _LIVE_INTEL_DATA cache,
+    populated by the call site after the fan-out fetch + editorial
+    layer have run. When the cache is empty (e.g. function called
+    before the first fetch), date math is the only signal.
+
+    Returns True only when (days_elapsed >= boil-off) AND
+    (live spot is None OR live spot >= $1,000/Mcf)."""
+    if helium_days_elapsed() < HELIUM_BOIL_OFF_DAYS:
+        return False
+    live_price = _LIVE_INTEL_DATA.get("helium_spot_price_mcf")
+    if live_price is not None and live_price < 1000:
+        # Live signal contradicts the date math — supply has
+        # plausibly recovered. Don't fire the breach gate.
+        return False
+    return True
 
 
 def jet_spike_pct(jet_value):
@@ -1842,6 +1961,12 @@ CAPTION_TEXTS = {
         "critical": "Industrial-Precious Break: solar and electronics "
                     "BOMs face direct cost pressure. Lock 90-day "
                     "futures for capex pipeline.",
+        # Fix A — silver in the warning band ($60-75) needed its own
+        # caption; without it the lookup returned (None, None) which
+        # collapsed the caption block AND the Source link inside it.
+        "warning":  "Industrial-Precious Stretch: cost pressure "
+                    "building on solar/electronics BOMs; review "
+                    "60-90 day hedge window for capex pipeline.",
         "nominal":  "Industrial Demand Stable: solar and BOM "
                     "exposure within nominal cost band.",
     },
@@ -1988,18 +2113,56 @@ def get_card_caption(key, breach=False, warning=False, **fmt):
     """Resolve a card's "Why & What" caption from CAPTION_TEXTS.
 
     Returns (text, state) where state is one of 'critical', 'warning',
-    'nominal', or None when no caption is configured for the requested
-    state. Optional `fmt` kwargs are applied via str.format() — used
-    for the helium days_past / boil_off interpolation."""
+    'nominal', 'stale', or None when no caption is configured for the
+    requested key at all.
+
+    Fix A — graceful severity fallback. If the requested state is
+    missing for a configured key, walk DOWN the severity ladder
+    (critical → warning → nominal) until a defined caption is found.
+    'nominal' is the floor: any configured key returns at minimum
+    its nominal copy rather than collapsing to (None, None) and
+    eating the Source link below it.
+
+    The state returned is the one that was actually resolved (not
+    the one requested) so the caption pill colour stays honest.
+
+    Fix C-2 — when `stale=True` is passed via fmt, look up the
+    metric-specific 'stale' copy if present, falling back to a
+    generic stale message rather than narrating nominal conditions
+    over a card with no live data."""
     if key not in CAPTION_TEXTS:
         return None, None
+
+    is_stale = bool(fmt.pop("stale", False))
+    if is_stale:
+        text = CAPTION_TEXTS[key].get("stale")
+        if text is None:
+            text = (
+                "No primary-source read available in the last 4 hours. "
+                "Card reflects last known reference, not current market."
+            )
+        if fmt:
+            try:
+                text = text.format(**fmt)
+            except (KeyError, IndexError):
+                pass
+        return text, "stale"
+
     if breach:
-        state = "critical"
+        ladder = ["critical", "warning", "nominal"]
     elif warning:
-        state = "warning"
+        ladder = ["warning", "nominal"]
     else:
-        state = "nominal"
-    text = CAPTION_TEXTS[key].get(state)
+        ladder = ["nominal"]
+
+    state = None
+    text = None
+    for candidate in ladder:
+        if candidate in CAPTION_TEXTS[key]:
+            state = candidate
+            text = CAPTION_TEXTS[key][candidate]
+            break
+
     if text is None:
         return None, None
     if fmt:
@@ -2919,6 +3082,369 @@ def fetch_jet_fuel_derived(brent_v):
     return derived, "derived from Brent (~1.18× crude × 7.5 bbl/t)"
 
 
+# ============================================================
+# Fix C-3 — Editorial Layer
+# ============================================================
+# Every hand-set value lives here. No silent post-fetch mutation of
+# intel_data or prices anywhere else. Each entry carries its own
+# expiry; once the calendar passes `expires_on` the override falls
+# off automatically and live data takes over. The UI surfaces the
+# count of applied / expired / disagreeing overrides so the
+# operator always knows what is hand-set vs what is live.
+#
+# Schema:
+#   value           - the value to write to the target dict
+#   set_on          - date the override was added
+#   set_by          - human-readable owner (editorial team / brief)
+#   rationale       - one-line reason
+#   primary_source  - URL or descriptive citation (the only excuse
+#                     for an override is a real source)
+#   expires_on      - date past which the override is suppressed
+#
+# The target dict is resolved by key match: keys in INTEL_METRICS
+# write to intel_data; keys in TICKERS write to prices. No need to
+# embed routing info in the entry itself.
+
+EDITORIAL_OVERRIDES = {
+    "india_rice_ban_status": {
+        "value": "INACTIVE",
+        "set_on": date(2026, 4, 10),
+        "set_by": "v15.4 brief (DGFT primary read)",
+        "rationale":
+            "DGFT Notification 07/2026-27 (April 10) liberalised "
+            "rice exports to non-EU European countries by removing "
+            "the Certificate of Inspection requirement. Sets the "
+            "policy snapshot until the next DGFT update.",
+        "primary_source":
+            "https://apeda.gov.in/dgft-notifications",
+        # Regulatory notifications turn over slowly — 90-day window.
+        "expires_on": date(2026, 7, 10),
+    },
+    "malacca_severity": {
+        "value": "nominal",
+        "set_on": date(2026, 4, 28),
+        "set_by": "v15.4 brief (FM Sugiono Apr 28 statement)",
+        "rationale":
+            "FM Sugiono publicly reaffirmed free passage on April 28; "
+            "the transit-fee proposal that drove the v15.2 shadow "
+            "tier was retracted as a thought-experiment.",
+        "primary_source":
+            "https://mykn.kuehne-nagel.com/news/",
+        # Verbal political commitment — 30-day re-check window.
+        "expires_on": date(2026, 5, 28),
+    },
+    "malacca_ships_waiting": {
+        "value": 80,
+        "set_on": date(2026, 4, 28),
+        "set_by": "v15.4 brief",
+        "rationale":
+            "Anchor at the peace-time baseline so the shadow trigger "
+            "(>15% above 80) does not fire while the FM Sugiono "
+            "free-passage statement is current.",
+        "primary_source":
+            "https://mykn.kuehne-nagel.com/news/",
+        "expires_on": date(2026, 5, 28),
+    },
+    "malacca_status": {
+        "value": (
+            "FM Sugiono (April 28) reaffirmed free passage; the "
+            "transit fee proposal was a retracted thought-experiment. "
+            "Traffic remains normal."
+        ),
+        "set_on": date(2026, 4, 28),
+        "set_by": "v15.4 brief",
+        "rationale":
+            "Surfaces the FM Sugiono primary statement as the card "
+            "detail line under the nominal severity.",
+        "primary_source":
+            "https://mykn.kuehne-nagel.com/news/",
+        "expires_on": date(2026, 5, 28),
+    },
+    "hormuz_daily_transit_count": {
+        "value": 4,
+        "set_on": date(2026, 4, 28),
+        "set_by": "v11-B brief",
+        "rationale":
+            "Strait of Hormuz at ~95% transit collapse following the "
+            "blockade extension. US rejected the April 27 reopening "
+            "offer. Override anchors the threshold engine until "
+            "Lloyd's List / Kpler resume publishing live counts.",
+        "primary_source":
+            "v11-B brief — Hormuz transit collapse (Reuters Maritime, "
+            "Lloyd's List press)",
+        # Fast-moving geopolitical condition — 14-day re-check.
+        "expires_on": date(2026, 5, 14),
+    },
+    "Gold": {
+        "value": 4571.0,
+        "set_on": date(2026, 4, 28),
+        "set_by": "v15.2 brief (technical level)",
+        "rationale":
+            "Anchor on the $4,571 support level being tested after "
+            "the break below the $4,660 ceiling. Live yfinance "
+            "reads can drift around technical analysis levels; this "
+            "override is a brief-time snapshot.",
+        "primary_source":
+            "https://www.bloomberg.com/markets/currencies/",
+        # Technical level — 14-day re-check.
+        "expires_on": date(2026, 5, 14),
+    },
+}
+
+
+def _resolve_override_target(key, intel_data, prices):
+    """Route a flat EDITORIAL_OVERRIDES key to the dict it should
+    write into. INTEL_METRICS keys → intel_data; TICKERS keys →
+    prices. Returns the target dict or None if the key matches
+    neither — that's a misconfigured override and apply_editorial_
+    layer will skip it with a log entry."""
+    if key in INTEL_METRICS:
+        return intel_data
+    if key in TICKERS:
+        return prices
+    return None
+
+
+# Fix C-5 — module-level facts with expiry. Parallel to
+# EDITORIAL_OVERRIDES but for non-routable facts (the OECD breach
+# bool, the EU ammonia capacity %). When their expiry passes the
+# fact auto-falls-off and the engine defaults to a non-breach
+# stance until live data resolves it. apply_editorial_facts()
+# below reassigns the module globals.
+EDITORIAL_FACTS = {
+    "oecd_inventory_below_min": {
+        "value": True,
+        "set_on": date(2026, 4, 1),
+        "set_by": "v11 brief",
+        "rationale":
+            "OECD commercial inventories confirmed below the 842 MB "
+            "operational minimum; price has become the rationing "
+            "mechanism rather than supply.",
+        "primary_source":
+            "EIA / IEA monthly oil market reports",
+        # 14-day re-check window; if EIA / IEA monthly data eases,
+        # this fact should expire and the engine reverts to live.
+        "expires_on": date(2026, 5, 14),
+    },
+    "eu_ammonia_capacity_pct": {
+        "value": 35.0,
+        "set_on": date(2026, 4, 1),
+        "set_by": "v11 brief",
+        "rationale":
+            "EU ammonia plant utilisation at ~35%, below the 40% "
+            "food-grade CO2 byproduct threshold. Sub-threshold "
+            "operation kills food-grade CO2 production.",
+        "primary_source":
+            "Fertilizer Europe / industry trade press",
+        # 21-day re-check window — slower-moving than OECD fact.
+        "expires_on": date(2026, 5, 21),
+    },
+}
+
+
+# Fix C-5 — live intel cache used by physical-logic gates.
+# helium_exhausted() consults this so the date math can be
+# overridden by a live signal. Set by the call site after the
+# fetch + editorial layer have run.
+_LIVE_INTEL_DATA = {}
+
+
+def apply_editorial_facts(today=None):
+    """Fix C-5 — walk EDITORIAL_FACTS and reassign the module
+    globals (OECD_INVENTORY_BREACH, EUROPEAN_AMMONIA_CAPACITY_PCT,
+    CO2_BYPRODUCT_BREACH). Expired facts fall off automatically;
+    the global defaults to a non-breach stance until live data
+    arrives. Returns a log dict for the editorial UI panel."""
+    today = today or date.today()
+    log = {"applied": [], "expired": [], "evaluated_at": today.isoformat()}
+
+    global OECD_INVENTORY_BREACH
+    global EUROPEAN_AMMONIA_CAPACITY_PCT
+    global CO2_BYPRODUCT_BREACH
+
+    fact_oecd = EDITORIAL_FACTS.get("oecd_inventory_below_min")
+    if fact_oecd:
+        if fact_oecd["expires_on"] >= today:
+            OECD_INVENTORY_BREACH = bool(fact_oecd["value"])
+            log["applied"].append({
+                "key": "oecd_inventory_below_min",
+                "value": fact_oecd["value"],
+                "expires_on": fact_oecd["expires_on"].isoformat(),
+                "set_by": fact_oecd["set_by"],
+                "rationale": fact_oecd["rationale"],
+                "primary_source": fact_oecd["primary_source"],
+            })
+        else:
+            # Expired — default to non-breach until live data
+            # arrives; the engine will not assert OECD-driven Tail
+            # Risk on stale evidence.
+            OECD_INVENTORY_BREACH = False
+            log["expired"].append({
+                "key": "oecd_inventory_below_min",
+                "expired_on": fact_oecd["expires_on"].isoformat(),
+                "rationale": fact_oecd["rationale"],
+            })
+
+    fact_ammonia = EDITORIAL_FACTS.get("eu_ammonia_capacity_pct")
+    if fact_ammonia:
+        if fact_ammonia["expires_on"] >= today:
+            EUROPEAN_AMMONIA_CAPACITY_PCT = float(fact_ammonia["value"])
+            log["applied"].append({
+                "key": "eu_ammonia_capacity_pct",
+                "value": fact_ammonia["value"],
+                "expires_on": fact_ammonia["expires_on"].isoformat(),
+                "set_by": fact_ammonia["set_by"],
+                "rationale": fact_ammonia["rationale"],
+                "primary_source": fact_ammonia["primary_source"],
+            })
+        else:
+            # Expired — default above the breach threshold so the
+            # cascade nodes drop back to nominal until live data
+            # confirms otherwise.
+            EUROPEAN_AMMONIA_CAPACITY_PCT = 50.0
+            log["expired"].append({
+                "key": "eu_ammonia_capacity_pct",
+                "expired_on": fact_ammonia["expires_on"].isoformat(),
+                "rationale": fact_ammonia["rationale"],
+            })
+
+    # Always recompute the CO2 breach bool from the (possibly
+    # reassigned) ammonia capacity vs the threshold.
+    CO2_BYPRODUCT_BREACH = (
+        EUROPEAN_AMMONIA_CAPACITY_PCT < EUROPEAN_AMMONIA_THRESHOLD_PCT
+    )
+    return log
+
+
+def _values_disagree(live, override, tolerance=0.10):
+    """Conservative disagreement check used by the editorial-log.
+    Numbers compare with a relative tolerance (default 10%). Strings
+    compare case-insensitive. Anything else uses == . `live` of None
+    never disagrees (no live signal is no contradiction)."""
+    if live is None:
+        return False
+    if isinstance(live, (int, float)) and isinstance(override, (int, float)):
+        if override == 0:
+            return live != 0
+        return abs(live - override) / abs(override) > tolerance
+    if isinstance(live, str) and isinstance(override, str):
+        return live.strip().lower() != override.strip().lower()
+    return live != override
+
+
+def apply_realfeed_overlays(intel_data, intel_meta, prices):
+    """Fix C-3 — overlays for deterministic public feeds. Pulled out
+    of the call site so the post-fetch flow is exactly two named
+    transformations: real-feed overlays, then editorial layer.
+
+    Both functions mutate intel_data in place; intel_meta is updated
+    so the per-metric provenance reflects the real-feed source. Live
+    LLM data wins over derived approximations (jet fuel only fills
+    when LLM returned None)."""
+    _urea_live = fetch_urea_yfinance()
+    if _urea_live is not None:
+        intel_data["urea_spot_price_ton"] = _urea_live
+        intel_meta.setdefault("metric_meta", {})[
+            "urea_spot_price_ton"
+        ] = {
+            "value": _urea_live,
+            "fetched_at":
+                datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "error": None,
+            "source_hint": "yfinance UFV=F (CME urea futures)",
+            "raw": None,
+        }
+
+    _brent = prices.get("Brent")
+    _jet_derived, _jet_tag = fetch_jet_fuel_derived(_brent)
+    if (
+        _jet_derived is not None
+        and intel_data.get("jet_fuel_price_ton") is None
+    ):
+        intel_data["jet_fuel_price_ton"] = _jet_derived
+        intel_meta.setdefault("metric_meta", {})[
+            "jet_fuel_price_ton"
+        ] = {
+            "value": _jet_derived,
+            "fetched_at":
+                datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "error": None,
+            "source_hint": _jet_tag,
+            "raw": None,
+        }
+
+
+def apply_editorial_layer(intel_data, prices, today=None):
+    """Fix C-3 — apply EDITORIAL_OVERRIDES with explicit logging.
+
+    Walks the dict; for each entry:
+      1. Skip if past `expires_on` and add to the `expired` log.
+      2. Otherwise compare against the live value (if any) and add
+         to the `disagree` log when they differ outside tolerance.
+      3. Apply the override and add to the `applied` log with
+         before/after values.
+
+    Returns the editorial_log dict; mutates intel_data and prices
+    in place. The UI surfaces the log via the editorial-layer
+    panel so the operator sees exactly what's hand-set right now."""
+    today = today or date.today()
+    log = {
+        "applied": [],
+        "expired": [],
+        "disagree": [],
+        "skipped_unknown": [],
+        "evaluated_at": today.isoformat(),
+    }
+
+    for key, override in EDITORIAL_OVERRIDES.items():
+        expires = override.get("expires_on")
+        target = _resolve_override_target(key, intel_data, prices)
+
+        if target is None:
+            log["skipped_unknown"].append({
+                "key": key,
+                "reason": "no matching dict (intel_data or prices)",
+            })
+            continue
+
+        if expires is not None and expires < today:
+            log["expired"].append({
+                "key": key,
+                "expired_on": expires.isoformat(),
+                "value": override.get("value"),
+                "rationale": override.get("rationale"),
+            })
+            continue
+
+        live_value = target.get(key)
+        before = live_value
+        new_value = override.get("value")
+
+        if _values_disagree(live_value, new_value):
+            log["disagree"].append({
+                "key": key,
+                "live": live_value,
+                "override": new_value,
+                "rationale": override.get("rationale"),
+                "primary_source": override.get("primary_source"),
+            })
+
+        target[key] = new_value
+        log["applied"].append({
+            "key": key,
+            "before": before,
+            "after": new_value,
+            "set_on": override.get("set_on").isoformat()
+                if override.get("set_on") else None,
+            "set_by": override.get("set_by"),
+            "rationale": override.get("rationale"),
+            "primary_source": override.get("primary_source"),
+            "expires_on": expires.isoformat() if expires else None,
+        })
+
+    return log
+
+
 def adjust_probabilities(prices: dict, intel: dict | None = None,
                          equity_changes: dict | None = None) -> dict:
     intel = intel or {}
@@ -2939,6 +3465,13 @@ def adjust_probabilities(prices: dict, intel: dict | None = None,
     brent = prices.get("Brent")
     ttf = prices.get("TTF")
 
+    # Fix C-5 — every upside rule now has a downside counterpart so
+    # the matrix can drift in BOTH directions when the world moves.
+    # The previous engine was strictly one-way: every threshold
+    # pushed Tail Risk up, only `brent < 90` nudged Best Case up,
+    # and Best Case was hard-pinned at 0%. With v11 starting weights
+    # restored above and the symmetric rules below, an improving
+    # commodity / logistics picture actually shows up in the matrix.
     if brent is not None and brent > 130:
         probs["Tail Risk"] += 10
         probs["Base Case"] -= 10
@@ -2948,6 +3481,10 @@ def adjust_probabilities(prices: dict, intel: dict | None = None,
     elif brent is not None and brent < 90:
         probs["Best Case"] += 5
         probs["Tail Risk"] -= 5
+    elif brent is not None and brent < 95:
+        # Mid-band easing — softer Best Case nudge.
+        probs["Best Case"] += 3
+        probs["Tail Risk"] -= 3
 
     if ttf is not None and ttf > 80:
         probs["Tail Risk"] += 8
@@ -2956,6 +3493,11 @@ def adjust_probabilities(prices: dict, intel: dict | None = None,
     elif ttf is not None and ttf > 65:
         probs["Tail Risk"] += 4
         probs["Base Case"] -= 4
+    elif ttf is not None and ttf < 50:
+        # TTF below the €52 baseline — gas market materially
+        # easing. Push toward Slow Normalization.
+        probs["Slow Normalization"] += 4
+        probs["Tail Risk"] -= 4
 
     urea = intel.get("urea_spot_price_ton")
     if urea is not None and urea > 800:
@@ -2965,6 +3507,11 @@ def adjust_probabilities(prices: dict, intel: dict | None = None,
     elif urea is not None and urea > 600:
         probs["Tail Risk"] += 3
         probs["Base Case"] -= 3
+    elif urea is not None and urea < 500:
+        # Urea well below the warning band — fertilizer-cost
+        # pressure on food inflation eases.
+        probs["Slow Normalization"] += 4
+        probs["Tail Risk"] -= 4
 
     hormuz = intel.get("hormuz_daily_transit_count")
     if hormuz is not None and hormuz < 20:
@@ -2976,6 +3523,14 @@ def adjust_probabilities(prices: dict, intel: dict | None = None,
         probs["Base Case"] += 3
         probs["Best Case"] -= 4
         probs["Slow Normalization"] -= 4
+    elif hormuz is not None and hormuz > 60:
+        # Strait actively recovering toward peace-time throughput.
+        probs["Best Case"] += 5
+        probs["Tail Risk"] -= 5
+    elif hormuz is not None and hormuz > 30:
+        # Above the Tail trigger but not yet near peace-time.
+        probs["Slow Normalization"] += 4
+        probs["Tail Risk"] -= 4
 
     panama = intel.get("panama_canal_neopanamax_price")
     if panama is not None and panama > 4_000_000:
@@ -3003,25 +3558,40 @@ def adjust_probabilities(prices: dict, intel: dict | None = None,
         probs["Best Case"] -= 4
         probs["Slow Normalization"] -= 4
 
-    # New tripwires (helium, resins, jet fuel, india rice ban).
+    # Fix C-5 — symmetric tripwires for helium, resins, jet fuel.
     helium = intel.get("helium_spot_price_mcf")
     if helium is not None and helium > 2000:
         probs["Tail Risk"] += 4
         probs["Base Case"] += 4
         probs["Best Case"] -= 4
         probs["Slow Normalization"] -= 4
+    elif helium is not None and helium < 1000:
+        # Live helium spot has fallen back below $1,000/Mcf —
+        # supply is plausibly recovering; push Slow Normalization.
+        probs["Slow Normalization"] += 4
+        probs["Tail Risk"] -= 4
 
     resin = intel.get("asian_pe_pp_resin_spike")
     if resin is not None and resin > 40:
         probs["Base Case"] += 5
         probs["Best Case"] -= 3
         probs["Slow Normalization"] -= 2
+    elif resin is not None and resin < 10:
+        # Resin spike at near-baseline — petrochemical input
+        # pressure on packaging / medical BOMs has eased.
+        probs["Slow Normalization"] += 3
+        probs["Tail Risk"] -= 3
 
     jet = intel.get("jet_fuel_price_ton")
     if jet is not None and jet > 1500:
         probs["Base Case"] += 4
         probs["Best Case"] -= 2
         probs["Slow Normalization"] -= 2
+    elif jet is not None and jet < 1200:
+        # Jet fuel below the warning band — aviation-arithmetic
+        # stress relieved; air-freight rates can normalise.
+        probs["Slow Normalization"] += 3
+        probs["Tail Risk"] -= 3
 
     if intel.get("india_rice_ban_status") == "ACTIVE":
         probs["Tail Risk"] += 18
@@ -3528,7 +4098,8 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
                       fmt="{:,.0f}", suffix="", delta_decimals=0,
                       use_baseline_fallback=True, breach=False,
                       warning=False, sparkline_series=None,
-                      caption_key=None, caption_fmt=None):
+                      caption_key=None, caption_fmt=None,
+                      last_fetched_at=None, source_hint=None):
     """Numeric card returning a single HTML string for the .intel-grid
     wrapper.
 
@@ -3536,15 +4107,17 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
       - If `value` is a real number, show it with the live delta vs
         baseline.
       - If `value` is None (Perplexity returned 0/null/missing) and
-        `use_baseline_fallback` is True (default for intel cards), show
-        the hardcoded peace-time baseline value with a subtle
-        "(baseline)" tag in place of the delta.
-      - If `value` is None and fallback is disabled (e.g., yfinance
-        ticker fetch failure), fall through to DATA UNAVAILABLE.
+        `use_baseline_fallback` is True (default for intel cards), the
+        card renders in a STALE state: dashed border, "NO LIVE DATA"
+        headline, hatched STALE badge, and a meta line showing the
+        last successful fetch + baseline reference + source hint.
+        The card explicitly does NOT pretend the baseline is live.
+      - If `value` is None and fallback is disabled, fall through to
+        DATA UNAVAILABLE.
 
-    The probability engine never sees the baseline — it operates on the
-    raw `intel_data` dict where missing values are still None. Fallback
-    is presentation-only.
+    The probability engine never sees the baseline — it operates on
+    the raw `intel_data` dict where missing values are still None.
+    Fallback is presentation-only.
 
     Status flags:
       `breach=True`   → .intel-card-breached (pulsing red glow)
@@ -3554,7 +4127,17 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
 
     `sparkline_series` (v13) — optional 7-day price series. When
     provided, renders an inline SVG sparkline next to the headline
-    value. Color picks up the breach/warning state automatically."""
+    value. Color picks up the breach/warning state automatically.
+
+    Fix C-2 stale provenance:
+      `last_fetched_at` — ISO timestamp of the most recent successful
+                         fetch for this metric. Surfaced in the stale
+                         meta line. None means "never fetched in this
+                         session" (the most stale case).
+      `source_hint`     — short string describing where a live read
+                         would come from (e.g. "Argus, S&P Platts").
+                         Shown in the stale meta line so the user
+                         knows what source to chase up."""
     label_safe = html.escape(label)
     if breach:
         card_class = "intel-card intel-card-breached"
@@ -3588,15 +4171,54 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
             )
 
     if value is None and use_baseline_fallback and baseline is not None:
-        value_display = f"{currency}{fmt.format(baseline)}{suffix}"
+        # Fix C-2 — render the stale state, not a baseline price
+        # masquerading as live. The caption is forced to its 'stale'
+        # variant so we never narrate nominal conditions over a card
+        # with no real read.
+        baseline_display = f"{currency}{fmt.format(baseline)}{suffix}"
+        last_seen = (
+            html.escape(last_fetched_at) if last_fetched_at
+            else "no successful fetch this session"
+        )
+        source_str = (
+            html.escape(source_hint) if source_hint
+            else "see metric source-hint list"
+        )
+        title_attr = (
+            f'Last successful fetch: {last_seen}. '
+            f'Baseline reference: {baseline_display}. '
+            f'Source: {source_str}.'
+        )
+        stale_caption_html = ""
+        if caption_key:
+            stale_text, stale_state = get_card_caption(
+                caption_key, stale=True,
+                **(caption_fmt or {}),
+            )
+            if stale_text:
+                source_html = render_source_link_html(caption_key)
+                stale_caption_html = (
+                    f'<div class="intel-card-caption '
+                    f'caption-{stale_state or "stale"}">'
+                    f'<span class="caption-tag">STALE</span>'
+                    f'{html.escape(stale_text)}'
+                    f'{source_html}'
+                    f'</div>'
+                )
         return (
-            f'<div class="intel-card">'
+            f'<div class="intel-card intel-card-stale" '
+            f'title="{title_attr}">'
             f'<div class="intel-card-label">{label_safe}</div>'
-            f'<div class="intel-card-value">{html.escape(value_display)}'
-            f'<span class="baseline-tag">(baseline)</span></div>'
-            f'<div class="intel-card-baseline-note">'
-            f'peace-time baseline · no live read</div>'
-            f'{caption_html}'
+            f'<div class="intel-card-stale-headline">'
+            f'NO LIVE DATA <span class="stale-badge">STALE</span>'
+            f'</div>'
+            f'<div class="intel-card-stale-meta">'
+            f'<strong>Last fetch:</strong> {last_seen}<br>'
+            f'<strong>Baseline ref:</strong> '
+            f'{html.escape(baseline_display)}<br>'
+            f'<strong>Source:</strong> {source_str}'
+            f'</div>'
+            f'{stale_caption_html}'
             f'</div>'
         )
 
@@ -3661,15 +4283,16 @@ def card_numeric_html(label, value, baseline, currency, bearish_on_rise,
 
 def card_status_html(label, value_text, value_color, detail,
                      is_baseline=False, breach=False, warning=False,
-                     caption_key=None, caption_fmt=None):
+                     caption_key=None, caption_fmt=None,
+                     last_fetched_at=None, source_hint=None):
     """Qualitative card returning a single HTML string. value_text=None
     → DATA UNAVAILABLE (used only when no peace-time baseline applies).
 
-    When `is_baseline` is True, a small italic "(baseline)" tag is
-    appended to the value and the detail line is rendered in muted
-    grey. The card otherwise looks like a live nominal reading. The
-    detail string can contain Perplexity-sourced text and is
-    HTML-escaped to defend against payload tampering.
+    Fix C-2 — when `is_baseline` is True the card now renders in the
+    STALE state instead of looking like a live nominal reading. The
+    `(baseline)` tag pattern from earlier versions silently posed
+    peace-time defaults as live readings; under v17 (Fix C-2) any
+    baseline-only render is unmistakably stale.
 
     Status flags:
       `breach=True`  → .intel-card-breached pulsing red glow
@@ -3677,7 +4300,10 @@ def card_status_html(label, value_text, value_color, detail,
     breach takes precedence if both are set.
 
     `caption_key` (v15.2) — optional key into CAPTION_TEXTS for the
-    "Why & What" italic line below the detail."""
+    "Why & What" italic line below the detail.
+
+    `last_fetched_at` / `source_hint` (Fix C-2) — surfaced in the
+    stale meta line + tooltip so the operator knows what failed."""
     label_safe = html.escape(label)
     detail_safe = html.escape(detail) if detail else "&nbsp;"
     if breach:
@@ -3713,13 +4339,59 @@ def card_status_html(label, value_text, value_color, detail,
             f'{caption_html}'
             f'</div>'
         )
+
+    if is_baseline:
+        # Fix C-2 — explicit STALE render. No mistaking the
+        # peace-time default for a live nominal reading.
+        last_seen = (
+            html.escape(last_fetched_at) if last_fetched_at
+            else "no successful fetch this session"
+        )
+        source_str = (
+            html.escape(source_hint) if source_hint
+            else (html.escape(detail) if detail else "")
+        )
+        baseline_summary = html.escape(value_text)
+        title_attr = (
+            f"Last successful fetch: {last_seen}. "
+            f"Baseline reference: {baseline_summary}. "
+            f"Source: {source_str or 'n/a'}."
+        )
+        stale_caption_html = ""
+        if caption_key:
+            stale_text, stale_state = get_card_caption(
+                caption_key, stale=True,
+                **(caption_fmt or {}),
+            )
+            if stale_text:
+                source_html = render_source_link_html(caption_key)
+                stale_caption_html = (
+                    f'<div class="intel-card-caption '
+                    f'caption-{stale_state or "stale"}">'
+                    f'<span class="caption-tag">STALE</span>'
+                    f'{html.escape(stale_text)}'
+                    f'{source_html}'
+                    f'</div>'
+                )
+        return (
+            f'<div class="intel-card intel-card-stale" '
+            f'title="{title_attr}">'
+            f'<div class="intel-card-label">{label_safe}</div>'
+            f'<div class="intel-card-stale-headline">'
+            f'NO LIVE DATA <span class="stale-badge">STALE</span>'
+            f'</div>'
+            f'<div class="intel-card-stale-meta">'
+            f'<strong>Last fetch:</strong> {last_seen}<br>'
+            f'<strong>Baseline ref:</strong> {baseline_summary}<br>'
+            f'<strong>Source:</strong> '
+            f'{source_str or "n/a"}'
+            f'</div>'
+            f'{stale_caption_html}'
+            f'</div>'
+        )
     color = html.escape(value_color or "#9ca3af")
-    baseline_tag = (
-        '<span class="baseline-tag">(baseline)</span>' if is_baseline else ""
-    )
-    detail_class = (
-        "intel-card-baseline-note" if is_baseline else "intel-card-detail"
-    )
+    baseline_tag = ""  # legacy; live status cards never tag now
+    detail_class = "intel-card-detail"
     # Inline border-color only fires when no breach/warning glow is
     # active — otherwise the glow's own border treatment takes over.
     if not (breach or warning):
@@ -3838,84 +4510,30 @@ intel_meta = {
     ),
 }
 
-# Real-feed adapter overlays — preferred over LLM retrieval where
-# a public deterministic source exists. We only overlay when the
-# adapter returns a real number; if the adapter fails, the LLM
-# value (which may itself be None) stays.
-_urea_live = fetch_urea_yfinance()
-if _urea_live is not None:
-    intel_data["urea_spot_price_ton"] = _urea_live
-    intel_meta["metric_meta"]["urea_spot_price_ton"] = {
-        "value": _urea_live,
-        "fetched_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "error": None,
-        "source_hint": "yfinance UFV=F (CME urea futures)",
-        "raw": None,
-    }
-
-_brent_for_jet = prices.get("Brent")
-_jet_derived, _jet_tag = fetch_jet_fuel_derived(_brent_for_jet)
-if (
-    _jet_derived is not None
-    and intel_data.get("jet_fuel_price_ton") is None
-):
-    # Only overlay when Perplexity could not source jet fuel; a
-    # real LLM-sourced value (when it exists) wins over the
-    # derived approximation.
-    intel_data["jet_fuel_price_ton"] = _jet_derived
-    intel_meta["metric_meta"]["jet_fuel_price_ton"] = {
-        "value": _jet_derived,
-        "fetched_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "error": None,
-        "source_hint": _jet_tag,
-        "raw": None,
-    }
-
-# ---------- v15.4 STATUS OVERRIDES (Verified Primary Source Data) ----------
-# v15.4 reframes the dashboard around primary-source accuracy. The
-# four metrics below have confirmed citations as of April 30, 2026
-# and are wired into both the data layer and the render layer so
-# the dashboard reflects truth-anchor state on first paint, even if
-# the Perplexity feed is slow / noisy / unavailable.
+# Fix C-3 — explicit, named transformations of the post-fetch
+# data. There are exactly two:
 #
-# Each entry maps to a primary source documented in the SOURCE_URLS
-# dict above; the rendering layer surfaces both the status and the
-# briefing copy below.
-STATUS_OVERRIDES = {
-    "India Rice":      "NOMINAL (Liberalized)",     # DGFT Notif 07/2026-27
-    "Malacca Strait":  "NOMINAL (Free Passage)",    # FM Sugiono Apr 28
-    "Gold":            "WARNING (Testing Support)",  # Support at $4,571
-    "Hormuz Transits": "CRITICAL (Blocked)",        # 95% drop confirmed
-}
+#   1. Real-feed overlays (yfinance UFV=F for urea, Brent-derived
+#      jet fuel) — public deterministic sources that improve on
+#      LLM retrieval where available.
+#   2. Editorial layer — every hand-set value lives in
+#      EDITORIAL_OVERRIDES with a primary source + expiry. The
+#      `editorial_log` returned here drives the UI panel that
+#      surfaces what's hand-set vs live.
+#
+# No silent post-fetch mutation of intel_data or prices anywhere
+# else in the file. All overrides flow through these two
+# functions and are auditable by the operator.
+apply_realfeed_overlays(intel_data, intel_meta, prices)
+editorial_log = apply_editorial_layer(intel_data, prices)
+editorial_facts_log = apply_editorial_facts()
 
-# v15.4 INDIA RICE — DGFT Notification 07/2026-27 (April 10, 2026)
-# eases rice exports to non-EU European countries. The ACTIVE/CRITICAL
-# stance from v15.2 is rolled back; the card renders as 🟢 NOMINAL
-# (Liberalized) with the new briefing.
-intel_data["india_rice_ban_status"] = "INACTIVE"
-
-# v15.4 MALACCA — FM Sugiono (April 28) reaffirmed free-passage
-# commitment; the toll proposal that triggered the v15.2 shadow has
-# been retracted. Clear the shadow trigger and bind the new briefing
-# text in malacca_status so the render layer surfaces it.
-intel_data["malacca_severity"] = "nominal"
-intel_data["malacca_ships_waiting"] = 80  # at baseline → no shadow
-intel_data["malacca_status"] = (
-    "FM Sugiono (April 28) reaffirmed free passage; the transit "
-    "fee proposal was a retracted thought-experiment. Traffic "
-    "remains normal."
-)
-
-# v15.4 HORMUZ — Strait at ~95% transit collapse persists. The
-# rejection of the April 27 reopening offer locks in the structural
-# break. Card renders as 🔴 CRITICAL: ~4 SHIPS/DAY below.
-intel_data["hormuz_daily_transit_count"] = 4
-
-# v15.4 GOLD — testing $4,571 support after breaking below the
-# $4,660 ceiling. Force the headline price into the warning band
-# (4400 < gold <= 4600) so the static amber glow lights up; the
-# warning caption surfaces the v15.4 briefing.
-prices["Gold"] = 4571.0
+# Fix C-5 — populate the live-intel cache so helium_exhausted()
+# (and any other downstream gate that consults live signals) sees
+# the post-fetch + post-editorial state. Mutating the existing
+# dict in place keeps any imported references valid.
+_LIVE_INTEL_DATA.clear()
+_LIVE_INTEL_DATA.update(intel_data)
 
 # Scenario probabilities + Global Resilience Score computed once for
 # the consolidated snapshot so every section is internally consistent.
@@ -3948,13 +4566,53 @@ st.markdown(
     '<h1 class="hud-title">■ Global Supply Chain Overview</h1>',
     unsafe_allow_html=True,
 )
-_intel_grade = "ARMED" if api_key else "STANDBY"
-_grade_class = "intel-armed" if api_key else ""
+# Fix C-4 — Intel Grade is now driven by the actual live-fraction
+# of intel metrics + the count of active editorial overrides, not
+# by the API-key check. Three states:
+#
+#   LIVE     — >= 80% of intel metrics returned a live value AND
+#              <= 1 editorial override is currently masking live
+#              data ("masking" = an override applied where a live
+#              value also came in but disagreed).
+#   MIXED    — 50–79% live, OR there are active editorial overrides
+#   DEGRADED — < 50% live values
+#
+# The badge surfaces both the tier and the literal fraction so the
+# operator never has to guess how much of the dashboard is real.
+_metric_meta_for_grade = (intel_meta.get("metric_meta") or {})
+_total_metrics = len(_metric_meta_for_grade) or 1
+_live_count = sum(
+    1 for m in _metric_meta_for_grade.values()
+    if m.get("value") is not None
+)
+_live_fraction = _live_count / _total_metrics
+_active_overrides = len(editorial_log.get("applied", []))
+_masking_count = len(editorial_log.get("disagree", []))
+
+if not api_key:
+    _intel_grade = "STANDBY"
+    _grade_class = "intel-degraded"
+elif _live_fraction >= 0.80 and _active_overrides <= 1:
+    # LIVE only when nearly all metrics returned a live value AND
+    # at most one editorial override is currently doing work. The
+    # `_masking_count` (overrides that disagree with live data) is
+    # counted as a separate signal in the editorial log; the LIVE
+    # tier rejects it implicitly via the active-override gate.
+    _intel_grade = "LIVE"
+    _grade_class = "intel-live"
+elif _live_fraction >= 0.50 or _active_overrides > 0:
+    _intel_grade = "MIXED"
+    _grade_class = "intel-mixed"
+else:
+    _intel_grade = "DEGRADED"
+    _grade_class = "intel-degraded"
+
 st.markdown(
     f'<div class="hud-subtitle">'
     f'Strategic Logistics &amp; Resource Intelligence '
     f'&nbsp;|&nbsp; Intel Grade: '
-    f'<span class="{_grade_class}">{_intel_grade}</span>'
+    f'<span class="{_grade_class}">{_intel_grade} '
+    f'({_live_count}/{_total_metrics} live)</span>'
     f'</div>',
     unsafe_allow_html=True,
 )
@@ -4560,6 +5218,19 @@ with col2:
     _hormuz_breach = hormuz_v is not None and hormuz_v < 20
     _hormuz_warn = hormuz_v is not None and 20 <= hormuz_v < 30
 
+    # Fix C-2 — pull last_fetched_at + source_hint out of intel_meta
+    # so the stale tooltip can surface real provenance for any card
+    # that ends up rendering NO LIVE DATA.
+    def _meta_kwargs(metric_key):
+        meta_record = (
+            (intel_meta.get("metric_meta") or {}).get(metric_key)
+            or {}
+        )
+        return {
+            "last_fetched_at": meta_record.get("fetched_at"),
+            "source_hint": meta_record.get("source_hint"),
+        }
+
     intel_cards.append(card_numeric_html(
         "PANAMA NEOPANAMAX  (slot $)",
         panama_v,
@@ -4568,6 +5239,7 @@ with col2:
         breach=_panama_breach,
         warning=_panama_warn,
         caption_key="panama",
+        **_meta_kwargs("panama_canal_neopanamax_price"),
     ))
     intel_cards.append(card_numeric_html(
         "UREA SPOT  ($/ton)",
@@ -4577,6 +5249,7 @@ with col2:
         breach=_urea_breach,
         warning=_urea_warn,
         caption_key="urea",
+        **_meta_kwargs("urea_spot_price_ton"),
     ))
     # v15.3 — Hormuz under blockade. When the live transit count is
     # at or below 4 ships/day (95%+ collapse), render as a status
@@ -4716,6 +5389,7 @@ with col2:
             "$", True, fmt="{:,.0f}",
             breach=_helium_breach,
             caption_key="helium",
+            **_meta_kwargs("helium_spot_price_mcf"),
         ))
 
     if CO2_BYPRODUCT_BREACH:
@@ -4749,6 +5423,7 @@ with col2:
         breach=_resin_breach,
         warning=_resin_warn,
         caption_key="resin",
+        **_meta_kwargs("asian_pe_pp_resin_spike"),
     ))
     _jet_breach = jet_v is not None and jet_v > 1500
     _jet_warn = jet_v is not None and 1100 < jet_v <= 1500
@@ -4760,6 +5435,7 @@ with col2:
         breach=_jet_breach,
         warning=_jet_warn,
         caption_key="jet",
+        **_meta_kwargs("jet_fuel_price_ton"),
     ))
 
     # v15.4 truth anchor — DGFT Notification 07/2026-27 (April 10, 2026)
@@ -4778,9 +5454,11 @@ with col2:
         ))
     elif rice_ban == "INACTIVE":
         # v15.5 — primary-source briefing: DGFT Notif 07/2026-27.
+        # Fix B — dropped "(Liberalized)" parenthetical; the detail
+        # line below the badge already explains the regulatory move.
         intel_cards.append(card_status_html(
             "INDIA RICE POLICY",
-            "🟢 NOMINAL (Liberalized)",
+            "🟢 NOMINAL",
             "#10b981",
             "DGFT Notification 07/2026-27 (April 10) liberalizes "
             "rice exports to non-EU European countries by removing "
@@ -4815,6 +5493,63 @@ with col2:
             f'&nbsp;|&nbsp; SOURCE: perplexity sonar-pro</div>',
             unsafe_allow_html=True,
         )
+
+    # ----- Fix C-3: Editorial Layer panel -----
+    # Surfaces what's currently hand-set vs live so the operator
+    # never has to guess. Counts of applied / expired / disagreeing
+    # overrides; expandable detail per entry.
+    _ed_applied = editorial_log.get("applied", [])
+    _ed_expired = editorial_log.get("expired", [])
+    _ed_disagree = editorial_log.get("disagree", [])
+    _ed_unknown = editorial_log.get("skipped_unknown", [])
+    st.markdown(
+        f'<div class="status-strip" '
+        f'style="margin-top:0.5rem;border-left-color:#9ca3af;">'
+        f'EDITORIAL LAYER: '
+        f'<span style="color:#fde68a;">'
+        f'{len(_ed_applied)} active</span> · '
+        f'<span style="color:#9ca3af;">'
+        f'{len(_ed_expired)} expired</span> · '
+        f'<span style="color:#fca5a5;">'
+        f'{len(_ed_disagree)} disagree with live</span>'
+        f'{(" · " + str(len(_ed_unknown)) + " misconfigured") if _ed_unknown else ""}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    with st.expander("ⓘ Editorial Layer — what's hand-set right now",
+                     expanded=False):
+        if _ed_applied:
+            st.markdown("**Active overrides** — applied on top of "
+                        "live data:")
+            for ov in _ed_applied:
+                disagree_flag = ""
+                if any(d["key"] == ov["key"] for d in _ed_disagree):
+                    disagree_flag = " 🟠 *disagrees with live*"
+                st.markdown(
+                    f"- **{ov['key']}** = `{ov['after']}` "
+                    f"(was `{ov['before']}`){disagree_flag}  \n"
+                    f"  set {ov['set_on']} by {ov['set_by']}, "
+                    f"expires {ov['expires_on']}  \n"
+                    f"  *{ov['rationale']}*  \n"
+                    f"  Source: {ov['primary_source']}"
+                )
+        if _ed_expired:
+            st.markdown("**Expired overrides** — auto-fell-off, "
+                        "live data now drives:")
+            for ov in _ed_expired:
+                st.markdown(
+                    f"- `{ov['key']}` (expired {ov['expired_on']}) — "
+                    f"{ov.get('rationale','')}"
+                )
+        if _ed_unknown:
+            st.markdown("**Misconfigured overrides** — key matches "
+                        "neither INTEL_METRICS nor TICKERS:")
+            for ov in _ed_unknown:
+                st.markdown(f"- `{ov['key']}` — {ov['reason']}")
+        if not (_ed_applied or _ed_expired or _ed_unknown):
+            st.markdown(
+                "_No editorial overrides currently configured._"
+            )
 
     # ----- v13: Systemic Cascade Map (Mermaid flowchart) -----
     # Streamlit renders each call as its own DOM container, so we
