@@ -1676,6 +1676,10 @@ INTEL_METRICS = {
             "Provide a primary citation.",
         "expected_type": "number",
         "unit_hint": "USD per slot",
+        # 30-day recency — ACP reports auctions in batches every
+        # few weeks, not daily. Spec sets this explicitly so the
+        # contract text matches.
+        "recency_days": 30,
         "primary_sources": [
             "Panama Canal Authority press releases (pancanal.com)",
             "Reuters Maritime",
@@ -1756,21 +1760,27 @@ INTEL_METRICS = {
         ],
     },
     "asian_pp_spot_price_ton": {
-        # Fix 3 — ask for the absolute Asia PP spot price (which
-        # trade press actually publishes) instead of a derived
-        # "spike percentage" (which they don't). The card's spike
-        # display is computed at render time from this absolute
-        # price vs the $1,000/tonne 2024-2025 baseline.
+        # v18 cleanup Fix 5a — ask for the LATEST monthly market
+        # assessment, not "current" daily quote. ICIS / IMARC /
+        # S&P publish PP assessments monthly, not in 7-day windows;
+        # the previous "last 7 days" framing guaranteed null. The
+        # card's spike display is still computed at render time
+        # from this absolute price vs the $1,000/tonne baseline.
         "question":
-            "What is the current Asian polypropylene (PP) spot "
-            "price in US dollars per metric tonne? Use Northeast "
-            "Asia / Southeast Asia FOB or CFR China. Provide a "
-            "primary citation from the last 7 days.",
+            "What is the most recent monthly polypropylene (PP) "
+            "spot price for Northeast Asia in US dollars per "
+            "metric tonne, as reported by IMARC, ICIS, or "
+            "S&P Global Platts in their April or May 2026 "
+            "monthly market report? Provide the primary citation.",
         "expected_type": "number",
-        "unit_hint": "USD per metric tonne (Asia PP spot)",
+        "unit_hint": "USD per metric tonne (Asia PP spot, monthly)",
+        # 30-day recency — monthly assessment cadence.
+        "recency_days": 30,
         "primary_sources": [
-            "ICIS", "S&P Global Platts", "Argus",
-            "Reuters Commodities", "IMARC monthly regional report",
+            "IMARC monthly regional report",
+            "ICIS Asian PP monthly assessment",
+            "S&P Global Platts polymerscan",
+            "Argus", "Reuters Commodities",
             "Trading Economics polypropylene CFD",
         ],
     },
@@ -3148,12 +3158,23 @@ def _build_per_metric_user_prompt(metric_key: str, spec: dict) -> str:
     expected = spec.get("expected_type", "string")
     enum_values = spec.get("enum_values", [])
 
+    # v18 cleanup Fix 5a — recency window is metric-configurable.
+    # Default is 7 days for daily-published numbers (yfinance-class
+    # tickers, AGSI+, transit counts). Metrics whose primary
+    # sources publish monthly (PP assessments, ACP press releases)
+    # set `recency_days: 30` so the prompt doesn't force a
+    # null-return on otherwise valid monthly assessments. Threaded
+    # through both the outer fallback rule AND the per-type
+    # contract so every "last N days" mention agrees.
+    recency_days = spec.get("recency_days", 7)
+
     if expected == "number":
         contract = (
             'Return ONLY a JSON object {"value": <number>} or '
             '{"value": null} if you cannot source a primary '
-            'reference from the last 7 days. Plain number, no '
-            'currency symbol, no commas, no units inside the value. '
+            f'reference from the last {recency_days} days. '
+            'Plain number, no currency symbol, no commas, no units '
+            'inside the value. '
             'No prose, no markdown, no citations.'
         )
     elif expected == "percent":
@@ -3161,8 +3182,8 @@ def _build_per_metric_user_prompt(metric_key: str, spec: dict) -> str:
             'Return ONLY a JSON object {"value": <number>} where the '
             'number is the percent (e.g. 25 means 25%) — or '
             '{"value": null} if you cannot source a primary '
-            'reference from the last 7 days. No prose, no markdown, '
-            'no citations.'
+            f'reference from the last {recency_days} days. '
+            'No prose, no markdown, no citations.'
         )
     elif expected == "enum":
         valid = ", ".join(f'"{v}"' for v in enum_values)
@@ -3175,14 +3196,14 @@ def _build_per_metric_user_prompt(metric_key: str, spec: dict) -> str:
         contract = (
             'Return ONLY a JSON object {"value": <string up to 200 '
             'chars>} or {"value": null} if you cannot source a '
-            'primary reference from the last 7 days. No prose, no '
-            'markdown, no citations.'
+            f'primary reference from the last {recency_days} days. '
+            'No prose, no markdown, no citations.'
         )
-
     return (
         f'{spec["question"]} '
         f'Use primary references only: {sources_str}. '
-        f'If no primary source within the last 7 days, return null. '
+        f'If no primary source within the last {recency_days} days, '
+        f'return null. '
         f'Do not infer, extrapolate, or guess. {contract}'
     )
 
@@ -4933,17 +4954,26 @@ def _classify_intel_source(metric_key, intel_data, intel_meta,
     metric. The classification is a strict precedence ladder:
 
       1. editorial_override   — apply_editorial_layer set the value.
-      2. yfinance_overlay     — apply_realfeed_overlays' urea path.
-      3. brent_derived        — apply_realfeed_overlays' jet path.
-      4. perplexity_live      — Perplexity returned a non-null value.
-      5. stale_baseline_fallback — value is None but we have an
+      2. editorial_fact       — apply_editorial_facts wrote a
+                                fallback into intel_data because
+                                live was null (v18 Fix 1b).
+      3. yfinance_overlay     — apply_realfeed_overlays' urea path.
+      4. brent_derived        — apply_realfeed_overlays' jet path.
+      5. perplexity_live      — Perplexity returned a non-null value.
+      6. stale_baseline_fallback — value is None but we have an
                                   INTEL_BASELINE entry (card renders
                                   STALE per Fix C-2).
-      6. no_data              — no live read and no baseline."""
+      7. no_data              — no live read and no baseline."""
     for entry in editorial_log.get("applied", []):
         if entry["key"] == metric_key:
             return "editorial_override"
     meta = (intel_meta.get("metric_meta") or {}).get(metric_key) or {}
+    # v18 cleanup Fix 4 — editorial-fact fallback path. The flag
+    # is stamped by apply_editorial_facts when a fact's
+    # target_intel_key fills a null live value. Must check this
+    # before perplexity_live so the card doesn't mislabel.
+    if meta.get("editorial_fact_fallback"):
+        return "editorial_fact"
     if "pre_overlay" in meta:
         hint = (meta.get("source_hint") or "").lower()
         if "yfinance" in hint or "ufv=f" in hint:
@@ -5746,10 +5776,18 @@ with st.expander("ⓘ How is the Global Resilience Score calculated?",
 # Status strip + extended-blockade banner sit *under* the GRS so the
 # composite score gets first read.
 now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+# v18 cleanup Fix 1 — surface the same _intel_grade tier the page
+# header uses, plus the live fraction. Hard-coded "ARMED" was
+# contradicting the header's "MIXED (4/12 LIVE)" reading.
+_grade_color = {
+    "LIVE":     "#00ffd1",
+    "MIXED":    "#ffa500",
+    "DEGRADED": "#fca5a5",
+    "STANDBY":  "#eab308",
+}.get(_intel_grade, "#9ca3af")
 intel_status = (
-    '<span style="color:#00ffd1;">ARMED</span>'
-    if api_key
-    else '<span style="color:#eab308;">STANDBY (no key)</span>'
+    f'<span style="color:{_grade_color};">'
+    f'{_intel_grade} ({_live_count}/{_total_metrics} live)</span>'
 )
 st.markdown(
     f'<div class="status-strip">FEED: yfinance + perplexity '
@@ -5759,16 +5797,19 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# v11 blockade banner — reflects the April 27 Iranian-offer rejection
-# and the resulting extended Hormuz blockade.
+# v11 blockade banner — editorial context only. v18 cleanup Fix 2:
+# stripped the stale 60%/40% parenthetical that was a v15-era
+# literal pinned to the old hard-coded BASE_PROBS. The matrix
+# right below already shows the live numbers; the banner's job
+# is to explain the geopolitical context, not mirror them.
 st.markdown(
     '<div class="status-strip" '
     'style="border-left-color:#dc2626;color:#fca5a5;'
     'background:rgba(220,38,38,0.08);">'
     '◆ EXTENDED BLOCKADE CONFIRMED &nbsp;|&nbsp; '
     'US rejected the Apr 27 Iranian offer &nbsp;|&nbsp; '
-    'Best Case probability collapsed to 0% — weight redistributed to '
-    'Base Case (60%) and Tail Risk (40%).</div>',
+    'Tail Risk now the dominant scenario in the matrix below.'
+    '</div>',
     unsafe_allow_html=True,
 )
 
@@ -6355,6 +6396,18 @@ with col2:
                 editorial_set_on=editorial_match.get("set_on"),
             )
             footer_kind = "editorial"
+        elif meta_record.get("editorial_fact_fallback"):
+            # v18 cleanup Fix 4 — editorial-fact fallback. The
+            # fact's set_on date lives in meta["fetched_at"]
+            # (apply_editorial_facts stamps it there). Surface
+            # as EDITORIAL so the LAST PULL line never mislabels
+            # an editorial fallback as a live perplexity read.
+            footer_text = _format_source_footer(
+                "EDITORIAL",
+                timestamp_iso=meta_record.get("fetched_at"),
+                editorial_set_on=meta_record.get("fetched_at"),
+            )
+            footer_kind = "editorial"
         elif meta_record.get("value") is None:
             footer_text = _format_source_footer(
                 "BASELINE", None,
@@ -6886,17 +6939,39 @@ with col3:
         is_fallback = val is None and baseline_val is not None
         display_val = baseline_val if is_fallback else val
 
-        if display_val is None:
+        # v18 cleanup Fix 3 — stale-fallback rows must look stale,
+        # not nominal. The previous behaviour rendered the baseline
+        # value (e.g. EU Gas Storage 80%) and labelled the row
+        # NOMINAL, implying live data confirmed it's safe — when in
+        # reality the engine has no live read at all. Now: any row
+        # whose underlying intel value is None falls into a STALE
+        # treatment regardless of whether a baseline is configured.
+        if val is None and is_fallback:
+            status_html = (
+                '<span style="color:#9ca3af;">'
+                '<span class="stale-badge" '
+                'style="margin-right:6px;">STALE</span>'
+                '— NO LIVE DATA</span>'
+            )
+            live_html = (
+                '<span style="color:#6b7280;font-style:italic;">'
+                'no live read</span>'
+            )
+            row_breached = False
+            row_warning = False
+        elif display_val is None:
             status_html = (
                 '<span style="color:#6b7280;">— DATA UNAVAILABLE</span>'
             )
             live_html = "—"
             row_breached = False
+            row_warning = False
         else:
             row_breached = (
                 (op == "gt" and display_val > thr)
                 or (op == "lt" and display_val < thr)
             )
+            row_warning = False
             if row_breached:
                 status_html = (
                     '<span style="color:#dc2626;">● BREACHED</span>'
@@ -6913,13 +6988,10 @@ with col3:
                     if sfx == "%"
                     else f"{display_val:.0f}"
                 )
-            if is_fallback:
-                live_html += (
-                    ' <span class="baseline-tag">(baseline)</span>'
-                )
         threshold_rows_html.append(render_threshold_row_html(
             name, live_html, status_html,
             insight_key=insight_key, breached=row_breached,
+            warning=row_warning,
         ))
 
     # Malacca severity row — three-state including the new shadow tier.
