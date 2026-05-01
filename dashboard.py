@@ -7335,7 +7335,7 @@ if _so_second is not None:
 # Projection log (last 30 days from the GitHub-Actions-driven CSV).
 _PROJECTION_LOG_RAW_URL = (
     "https://raw.githubusercontent.com/"
-    "DigiDaz/EarlyWarning/main/projection_log.csv"
+    "darmckenn/dashboard/main/projection_log.csv"
 )
 with st.expander(
     "▸ Projection log (last 30 daily snapshots)", expanded=False,
