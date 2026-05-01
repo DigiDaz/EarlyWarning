@@ -884,6 +884,21 @@ CUSTOM_CSS = """
         letter-spacing: 1px;
         font-size: 0.7rem;
     }
+    /* v18 add Fix 3 — 30-day GRS trajectory row. Sits between
+       the bar and the cluster grid; sparkline + caption inline. */
+    .grs-trajectory {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 0.85rem;
+        padding-top: 0.65rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.04);
+        font-family: 'Courier New', monospace;
+    }
+    .grs-trajectory-caption {
+        font-size: 0.78rem;
+        letter-spacing: 0.5px;
+    }
     /* v15.2 — GRS dynamic description block. Sits below the cluster
        grid and translates the numeric score into operating posture
        (Systemic Stability / Strained Baseline / Structural Failure).
@@ -1760,28 +1775,29 @@ INTEL_METRICS = {
         ],
     },
     "asian_pp_spot_price_ton": {
-        # v18 cleanup Fix 5a — ask for the LATEST monthly market
-        # assessment, not "current" daily quote. ICIS / IMARC /
-        # S&P publish PP assessments monthly, not in 7-day windows;
-        # the previous "last 7 days" framing guaranteed null. The
-        # card's spike display is still computed at render time
-        # from this absolute price vs the $1,000/tonne baseline.
+        # v18 add Fix 2 — broader-still phrasing. "spot or
+        # contract price" + "Northeast Asia OR Southeast Asia"
+        # accept either regional anchor. Matches what ICIS and
+        # IMARC actually publish in their monthly assessments.
+        # Trading Economics reference dropped — they block
+        # scrapers and the rendering breaks fragile-source data
+        # rather than admitting STALE honestly.
         "question":
-            "What is the most recent monthly polypropylene (PP) "
-            "spot price for Northeast Asia in US dollars per "
-            "metric tonne, as reported by IMARC, ICIS, or "
-            "S&P Global Platts in their April or May 2026 "
-            "monthly market report? Provide the primary citation.",
+            "What is the most recent MONTHLY Asia polypropylene "
+            "(PP) spot or contract price in US dollars per "
+            "metric tonne, as reported by ICIS, IMARC Group, "
+            "or S&P Global Platts in their April or May 2026 "
+            "monthly market assessment? Use Northeast Asia or "
+            "Southeast Asia as the regional anchor.",
         "expected_type": "number",
         "unit_hint": "USD per metric tonne (Asia PP spot, monthly)",
         # 30-day recency — monthly assessment cadence.
         "recency_days": 30,
         "primary_sources": [
-            "IMARC monthly regional report",
             "ICIS Asian PP monthly assessment",
+            "IMARC Group monthly regional report",
             "S&P Global Platts polymerscan",
             "Argus", "Reuters Commodities",
-            "Trading Economics polypropylene CFD",
         ],
     },
     "jet_fuel_price_ton": {
@@ -2605,6 +2621,137 @@ def grs_compute(prices: dict, intel: dict | None = None) -> dict:
     }
 
 
+@st.cache_data(ttl=14400)
+def fetch_30d_close_history(ticker: str):
+    """v18 add Fix 3 — cached yfinance close history for the GRS
+    sparkline. Returns a list of (date_iso, close_value) tuples,
+    oldest first, last 40 trading days. Returns [] on any
+    failure. 4-hour TTL matches the rest of the live-data plumbing.
+
+    The 40-day window gives us enough cushion to extract the
+    last 30 calendar days even when weekends / holidays trim
+    trading sessions."""
+    try:
+        hist = yf.Ticker(ticker).history(period="40d")
+        if hist.empty:
+            return []
+        out = []
+        for ts, val in hist["Close"].items():
+            try:
+                out.append(
+                    (ts.strftime("%Y-%m-%d"), float(val))
+                )
+            except Exception:
+                continue
+        return out
+    except Exception:
+        return []
+
+
+def grs_history_30d():
+    """v18 add Fix 3 — recompute a 30-day GRS trace from
+    yfinance commodity history + today's editorial layer.
+
+    Logistics, buffers, and editorial overrides are held constant
+    at today's values across the window — only the commodity
+    inputs (Brent, TTF, Gold, Silver, Urea via UFV=F) vary by
+    historical close. This is honest about what the line shows:
+    a *commodity-driven* trajectory.
+
+    Returns a list of (date_iso, grs_overall) tuples, oldest
+    first. Skips days where any required commodity close is
+    missing (weekends, holidays). On a fresh deploy with no
+    yfinance history, returns []."""
+    histories = {
+        ticker: fetch_30d_close_history(ticker)
+        for ticker in ("BZ=F", "TTF=F", "GC=F", "SI=F", "UFV=F")
+    }
+    # Build the union of dates, latest 30 calendar entries.
+    all_dates = sorted({
+        d for h in histories.values() for d, _ in h
+    })[-30:]
+
+    # Indexes: ticker → {date_iso: close}
+    indexed = {
+        t: {d: v for d, v in h} for t, h in histories.items()
+    }
+
+    trace = []
+    for d in all_dates:
+        day_prices = {}
+        for ticker, label in (
+            ("BZ=F", "Brent"), ("TTF=F", "TTF"),
+            ("GC=F", "Gold"),  ("SI=F", "Silver"),
+        ):
+            v = indexed.get(ticker, {}).get(d)
+            if v is not None:
+                day_prices[label] = v
+
+        # Hold today's intel constant; override only urea
+        # historically because UFV=F is the engine input for
+        # commodity health.
+        day_intel = dict(_LIVE_INTEL_DATA)
+        urea_hist = indexed.get("UFV=F", {}).get(d)
+        if urea_hist is not None:
+            day_intel["urea_spot_price_ton"] = urea_hist
+
+        grs_d = grs_compute(day_prices, day_intel)
+        overall = grs_d.get("overall")
+        if overall is not None:
+            trace.append((d, round(overall, 1)))
+    return trace
+
+
+def grs_history_color(trace):
+    """v18 add Fix 3 — colour-code the trajectory sparkline by
+    overall direction. Improving (last - first ≥ +3 pts) → green;
+    deteriorating (≤ −3 pts) → red; otherwise amber."""
+    if not trace or len(trace) < 2:
+        return "#fbbf24"  # amber default
+    delta = trace[-1][1] - trace[0][1]
+    if delta >= 3:
+        return "#10b981"
+    if delta <= -3:
+        return "#ff4b4b"
+    return "#fbbf24"
+
+
+def grs_history_caption(trace, current_grs):
+    """v18 add Fix 3 — caption text for the GRS sparkline.
+    Format:
+        '30-DAY: 47.8% (▲ +1.2 vs 30d ago)'
+        '30-DAY: 47.8% (▼ -3.5 vs 30d ago)'
+        '30-DAY: 47.8% (→ flat vs 30d ago)'
+
+    Returns (caption_text, color)."""
+    color = grs_history_color(trace)
+    headline = (
+        f"{current_grs:.1f}%" if current_grs is not None
+        else "—"
+    )
+    if not trace or len(trace) < 2:
+        return f"30-DAY: {headline} (insufficient history)", color
+    delta = trace[-1][1] - trace[0][1]
+    if delta >= 3:
+        glyph = "▲"
+        delta_str = f"+{delta:.1f}"
+    elif delta <= -3:
+        glyph = "▼"
+        delta_str = f"{delta:.1f}"
+    else:
+        glyph = "→"
+        delta_str = "flat"
+    if delta_str == "flat":
+        return (
+            f"30-DAY: {headline} (→ flat vs 30d ago)",
+            color,
+        )
+    return (
+        f"30-DAY: {headline} ({glyph} {delta_str} vs 30d ago)",
+        color,
+    )
+
+
 def grs_tier(score):
     """v15.2 three-tier classification used for color theming, the
     GRS tag, and the dynamic description block.
@@ -2929,14 +3076,19 @@ def _relative_time(ts):
 
 def _format_source_footer(source_kind, timestamp_iso,
                           editorial_set_on=None,
-                          last_live_fetch=None):
+                          last_live_fetch=None,
+                          market_label="yfinance"):
     """Fix 2b — single-line per-card footer.
 
     source_kind:
-      'MARKET'    → 'LAST PULL: <rel> · MARKET (yfinance)'
+      'MARKET'    → 'LAST PULL: <rel> · MARKET (<market_label>)'
       'INTEL'     → 'LAST PULL: <rel> · INTEL (perplexity)'
       'EDITORIAL' → 'LAST PULL: <rel> · EDITORIAL (set <date>)'
       'BASELINE'  → 'BASELINE (no live read since <last_live_fetch>)'
+
+    v18 add — `market_label` defaults to "yfinance" for backwards
+    compatibility, but lets the AGSI+ direct overlay surface as
+    "MARKET (AGSI+ direct)" without changing the per-tier styling.
 
     Returns the formatted string, or None when there is genuinely
     no information to show (so the card builder skips the line)."""
@@ -2956,7 +3108,7 @@ def _format_source_footer(source_kind, timestamp_iso,
             set_on_str = set_on_str.split("T")[0]
         return f"LAST PULL: {rel} · EDITORIAL (set {set_on_str})"
     if source_kind == "MARKET":
-        return f"LAST PULL: {rel} · MARKET (yfinance)"
+        return f"LAST PULL: {rel} · MARKET ({market_label})"
     if source_kind == "INTEL":
         return f"LAST PULL: {rel} · INTEL (perplexity)"
     # Unknown kind — don't fabricate.
@@ -3451,6 +3603,57 @@ def fetch_jet_fuel_derived(brent_v):
     return derived, "derived from Brent (~1.18× crude × 7.5 bbl/t)"
 
 
+@st.cache_data(ttl=14400)
+def fetch_eu_gas_storage_agsi():
+    """v18 add — EU-aggregated gas storage % full from the AGSI+
+    REST API. Returns (pct_full, fetched_at_iso) or (None, None)
+    on any failure (missing key, network error, schema drift,
+    null response). Fails silently — the call site falls back to
+    Perplexity, and from there to STALE.
+
+    AGSI+ requires a free personal API key registered at
+    https://agsi.gie.eu/account . The key lives in Streamlit
+    secrets (AGSI_API_KEY); we never log or persist it.
+
+    Schema: GET /api?country=eu&date=latest returns
+    {data: [{full: "<pct>", ...}, ...]}. The list is paginated
+    most-recent-first. `full` is the % of working-gas-volume
+    capacity; cast defensively because some versions ship it
+    as a string."""
+    try:
+        api_key = st.secrets.get("AGSI_API_KEY")
+    except Exception:
+        api_key = None
+    if not api_key:
+        return None, None
+    try:
+        resp = requests.get(
+            "https://agsi.gie.eu/api",
+            params={"country": "eu", "date": "latest"},
+            headers={"x-key": api_key},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return None, None
+        data = resp.json()
+        rows = (
+            data.get("data") if isinstance(data, dict) else data
+        )
+        if not rows:
+            return None, None
+        latest = rows[0]
+        raw_full = latest.get("full")
+        if raw_full is None:
+            return None, None
+        full_pct = float(raw_full)
+        return (
+            full_pct,
+            datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+    except Exception:
+        return None, None
+
+
 # ============================================================
 # Fix C-3 — Editorial Layer
 # ============================================================
@@ -3800,6 +4003,32 @@ def apply_realfeed_overlays(intel_data, intel_meta, prices):
     value", which is the canonical bug-hunt question for the AI
     auditor."""
     metric_meta = intel_meta.setdefault("metric_meta", {})
+
+    # v18 add Fix 1 — AGSI+ direct overlay BEFORE Perplexity is
+    # given a chance to populate eu_gas_storage_pct. The free
+    # AGSI+ API returns the exact aggregate the card displays;
+    # when it succeeds, the LLM retrieval becomes the fallback.
+    # Preserves pre_overlay so the source dump retains the
+    # Perplexity audit trail.
+    _gas_live, _gas_ts = fetch_eu_gas_storage_agsi()
+    if _gas_live is not None:
+        _pre_gas = metric_meta.get("eu_gas_storage_pct") or {}
+        intel_data["eu_gas_storage_pct"] = _gas_live
+        metric_meta["eu_gas_storage_pct"] = {
+            "value": _gas_live,
+            "fetched_at": _gas_ts or
+                datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "error": None,
+            "source_hint":
+                "AGSI+ direct API (gie.eu, country=eu)",
+            "raw": None,
+            "pre_overlay": {
+                "value": _pre_gas.get("value"),
+                "fetched_at": _pre_gas.get("fetched_at"),
+                "source_hint": _pre_gas.get("source_hint"),
+                "error": _pre_gas.get("error"),
+            },
+        }
 
     _urea_live, _urea_ts = fetch_urea_yfinance()
     if _urea_live is not None:
@@ -4976,6 +5205,11 @@ def _classify_intel_source(metric_key, intel_data, intel_meta,
         return "editorial_fact"
     if "pre_overlay" in meta:
         hint = (meta.get("source_hint") or "").lower()
+        # v18 add Fix 1 — AGSI+ direct API gets its own enum so
+        # the source dump audit trail tells "from gie.eu" apart
+        # from "from yfinance" cleanly.
+        if "agsi" in hint or "gie.eu" in hint:
+            return "agsi_direct_api"
         if "yfinance" in hint or "ufv=f" in hint:
             return "yfinance_overlay"
         if "derived" in hint:
@@ -5020,12 +5254,19 @@ def _editorial_for_key(key, editorial_log):
 def _build_source_dump(prices, intel_data, intel_meta, editorial_log,
                        editorial_facts_log, grs, adjusted, actions,
                        intel_grade, live_count, total_metrics,
-                       api_key_configured, sparkline_series=None):
+                       api_key_configured, sparkline_series=None,
+                       grs_history=None):
     """Pure function. Consolidates the in-memory state into a dict
     for the Source Dump panel. No network calls, no globals beyond
     read-only constants. Returns a dict; callers format it as
-    Markdown or JSON."""
+    Markdown or JSON.
+
+    v18 add Fix 3 — `grs_history` is the optional 30-day trace
+    list of (date_iso, grs_overall) tuples used by the headline
+    sparkline. Surfaced in the dump so a downstream auditor can
+    verify the trajectory line against the underlying numbers."""
     sparkline_series = sparkline_series or {}
+    grs_history = grs_history or []
 
     # ----- 1. METADATA -----
     metadata = {
@@ -5192,6 +5433,13 @@ def _build_source_dump(prices, intel_data, intel_meta, editorial_log,
         "editorial_layer": editorial_layer,
         "physical_logic_gates": physical_gates,
         "engine_output": engine_output,
+        # v18 add Fix 3 — 30-day commodity-driven GRS trace.
+        # List of {date, grs_overall} entries oldest→newest;
+        # may be empty when yfinance history is unavailable.
+        "grs_history": [
+            {"date": d, "grs_overall": v}
+            for d, v in grs_history
+        ],
         "source_urls": url_manifest,
     }
 
@@ -5385,6 +5633,40 @@ def _format_source_dump_markdown(dump):
     md.append("")
     for url, keys in dump.get("source_urls", {}).items():
         md.append(f"- **{url}** → `{keys}`")
+    md.append("")
+
+    # v18 add Fix 3 — surface the GRS trajectory in the Markdown
+    # view too. Compact: first/last value + delta, plus a folded
+    # detail block with the full trace.
+    history = dump.get("grs_history", [])
+    md.append("### 7. GRS 30-Day Trajectory")
+    md.append("")
+    if history and len(history) >= 2:
+        first = history[0]
+        last = history[-1]
+        delta = last["grs_overall"] - first["grs_overall"]
+        glyph = "▲" if delta > 0 else "▼" if delta < 0 else "→"
+        md.append(
+            f"- **First** ({first['date']}): "
+            f"`{first['grs_overall']:.1f}%`"
+        )
+        md.append(
+            f"- **Last** ({last['date']}): "
+            f"`{last['grs_overall']:.1f}%`"
+        )
+        md.append(
+            f"- **Delta:** {glyph} `{delta:+.1f}` over "
+            f"{len(history)} sessions"
+        )
+        md.append("")
+        md.append("<details><summary>Full trace</summary>")
+        md.append("")
+        for pt in history:
+            md.append(f"- {pt['date']}: `{pt['grs_overall']:.1f}%`")
+        md.append("")
+        md.append("</details>")
+    else:
+        md.append("_Insufficient history (yfinance returned <2 closes)._")
     md.append("")
     return "\n".join(md)
 
@@ -5736,6 +6018,35 @@ if _grs_tier in GRS_DESCRIPTIONS:
 else:
     _grs_description_html = ""
 
+# v18 add Fix 3 — 30-day commodity-driven GRS trajectory.
+# Sparkline + delta caption sit between the bar and the cluster
+# grid. Recompute-from-scratch each load using cached yfinance
+# history; nothing persisted. The caveat in the expander below
+# explains exactly what this trace does and doesn't capture.
+grs_history = grs_history_30d()
+if grs_history:
+    _trajectory_color = grs_history_color(grs_history)
+    _trajectory_caption_text, _ = grs_history_caption(
+        grs_history, _grs_overall,
+    )
+    _trajectory_values = [v for _, v in grs_history]
+    _trajectory_svg = render_sparkline_svg(
+        _trajectory_values,
+        color=_trajectory_color,
+        width=140,
+        height=32,
+    )
+    _grs_trajectory_html = (
+        f'<div class="grs-trajectory">'
+        f'{_trajectory_svg}'
+        f'<span class="grs-trajectory-caption" '
+        f'style="color:{_trajectory_color};">'
+        f'{html.escape(_trajectory_caption_text)}</span>'
+        f'</div>'
+    )
+else:
+    _grs_trajectory_html = ""
+
 st.markdown(
     f'<div class="{_grs_panel_class}">'
     f'<div class="grs-header">'
@@ -5744,6 +6055,7 @@ st.markdown(
     f'{_grs_score_html}'
     f'</div>'
     f'{_grs_bar_html}'
+    f'{_grs_trajectory_html}'
     f'{_clusters_html}'
     f'{_grs_description_html}'
     f'</div>',
@@ -5771,6 +6083,15 @@ with st.expander("ⓘ How is the Global Resilience Score calculated?",
         "inventories vs the 842 MB operational minimum.\n\n"
         "Each metric is mapped to a 0–100 health score; the cluster "
         "average ignores any inputs that are currently unavailable."
+        "\n\n"
+        "**About the 30-day sparkline:** the trajectory line above "
+        "shows what the GRS would have been each of the last 30 "
+        "days using historical Brent, TTF, Gold, Silver, and Urea "
+        "closes — with today's logistics, buffer, and editorial "
+        "values held constant. It captures **commodity-driven** "
+        "trajectory. A flat sparkline can still hide changes in "
+        "the logistics or buffer clusters; the trace updates "
+        "daily as new closes arrive."
     )
 
 # Status strip + extended-blockade banner sit *under* the GRS so the
@@ -6416,7 +6737,17 @@ with col2:
             footer_kind = "baseline"
         else:
             hint = (meta_record.get("source_hint") or "").lower()
-            if (
+            # v18 add Fix 1 — AGSI+ direct API gets the MARKET
+            # tier (not INTEL) and a custom label so the footer
+            # surfaces the actual data feed.
+            if "agsi" in hint or "gie.eu" in hint:
+                footer_text = _format_source_footer(
+                    "MARKET",
+                    meta_record.get("fetched_at"),
+                    market_label="AGSI+ direct",
+                )
+                footer_kind = "market"
+            elif (
                 "yfinance" in hint or "ufv=f" in hint
                 or "derived" in hint
             ):
@@ -7262,6 +7593,10 @@ with st.expander(
         total_metrics=_total_metrics,
         api_key_configured=bool(api_key),
         sparkline_series=sparkline_series,
+        # v18 add Fix 3 — pass the 30-day trace so the auditor
+        # can verify the headline sparkline against the
+        # underlying numbers.
+        grs_history=grs_history,
     )
     _md_tab, _json_tab = st.tabs(
         ["📄 Markdown view", "🤖 JSON view (for AI audit)"]
