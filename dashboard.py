@@ -4248,13 +4248,15 @@ EDITORIAL_OVERRIDES = {
         "set_on": date(2026, 4, 28),
         "set_by": "v11-B brief",
         "rationale":
-            "Strait of Hormuz at ~95% transit collapse following the "
-            "blockade extension. US rejected the April 27 reopening "
-            "offer. Override anchors the threshold engine until "
-            "Lloyd's List / Kpler resume publishing live counts.",
+            "Strait of Hormuz running at ~5% of pre-war traffic per "
+            "Al Jazeera / Lloyd's List Intelligence (late April). Dual "
+            "blockade in place since April 13. Override anchors the "
+            "threshold engine at 4 ships/day until Lloyd's List / "
+            "Kpler resume publishing live counts.",
         "primary_source":
-            "v11-B brief — Hormuz transit collapse (Reuters Maritime, "
-            "Lloyd's List press)",
+            "https://www.aljazeera.com/features/2026/4/28/"
+            "when-will-strait-of-hormuz-be-safe-for-commercial-"
+            "shipping-again",
         # Fast-moving geopolitical condition — 14-day re-check.
         "expires_on": date(2026, 5, 14),
     },
@@ -7155,9 +7157,9 @@ st.markdown(
     '<div class="status-strip" '
     'style="border-left-color:#dc2626;color:#fca5a5;'
     'background:rgba(220,38,38,0.08);">'
-    '◆ EXTENDED BLOCKADE CONFIRMED &nbsp;|&nbsp; '
-    'US rejected the Apr 27 Iranian offer &nbsp;|&nbsp; '
-    'Tail Risk now the dominant scenario in the matrix below.'
+    '◆ DUAL BLOCKADE ACTIVE &nbsp;|&nbsp; '
+    'Project Freedom launched 4 May &nbsp;|&nbsp; '
+    'Tail Risk remains the dominant scenario in the matrix below.'
     '</div>',
     unsafe_allow_html=True,
 )
