@@ -2474,9 +2474,9 @@ def helium_exhausted():
     v11 brief: at >= 48 days past the Qatar force majeure, fab and
     MRI stockpiles drain — semiconductor yield collapse is imminent.
     But the calendar alone is no longer a defensible default: if
-    live helium spot has fallen back below $1,000/Mcf, supply is
-    plausibly recovering and 'exhausted' should not auto-fire on
-    date math alone.
+    live helium spot has fallen back to roughly the pre-war baseline,
+    supply is plausibly recovering and 'exhausted' should not
+    auto-fire on date math alone.
 
     Live signal source: the module-level _LIVE_INTEL_DATA cache,
     populated by the call site after the fan-out fetch + editorial
@@ -2484,11 +2484,22 @@ def helium_exhausted():
     before the first fetch), date math is the only signal.
 
     Returns True only when (days_elapsed >= boil-off) AND
-    (live spot is None OR live spot >= $1,000/Mcf)."""
+    (live spot is None OR live spot >= recovery threshold)."""
     if helium_days_elapsed() < HELIUM_BOIL_OFF_DAYS:
         return False
     live_price = _LIVE_INTEL_DATA.get("helium_spot_price_mcf")
-    if live_price is not None and live_price < 1000:
+    # Recovery threshold rebased on the post-war pricing era.
+    # Pre-war baseline ~$300/Mcf per Fortune / Moody's helium
+    # outlook (April 2026); $400 = baseline + ~33% as a
+    # conservative recovery signal. The earlier $1,000 threshold
+    # (>3× baseline) classified severely stressed pricing as
+    # "recovered" — at today's $800 spot (2.6× baseline) the gate
+    # was returning False and rendering helium as NOMINAL despite
+    # an active force majeure. Revisit when the pre-war baseline
+    # itself shifts (next industry-survey cycle).
+    # TODO: lift this constant to module top alongside
+    # QATAR_HELIUM_FORCE_MAJEURE_DATE for discoverability.
+    if live_price is not None and live_price < 400:
         # Live signal contradicts the date math — supply has
         # plausibly recovered. Don't fire the breach gate.
         return False
