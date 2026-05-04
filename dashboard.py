@@ -2627,12 +2627,12 @@ CAPTION_TEXTS = {
                     "to food shelf prices is contained.",
     },
     "hormuz": {
-        # v15.5 — Blockade persists at ~4 ships/day (95% collapse).
-        # US rejection of the April 27th reopening offer is now
-        # confirmed; assume Ras Laffan offline 3-5 years.
-        "critical": "Blockade persists; ~4 ships/day (95% collapse). "
-                    "US rejection of April 27th reopening offer "
-                    "confirmed.",
+        # v18+ — Dual blockade in place since April 13; ~4 ships/day
+        # (~95% collapse vs pre-war). Project Freedom launched 4 May;
+        # UAE Fujairah struck same day. Assume Ras Laffan offline 3-5y.
+        "critical": "Blockade persists at ~4 ships/day. Project "
+                    "Freedom escort beginning; UAE infrastructure "
+                    "struck same day.",
         "warning":  "Transit Stress: tanker rates and war-risk premia "
                     "spreading. Pre-brief logistics on contingency "
                     "routing.",
@@ -4245,7 +4245,7 @@ EDITORIAL_OVERRIDES = {
     },
     "hormuz_daily_transit_count": {
         "value": 4,
-        "set_on": date(2026, 4, 28),
+        "set_on": date(2026, 5, 4),
         "set_by": "v11-B brief",
         "rationale":
             "Strait of Hormuz running at ~5% of pre-war traffic per "
@@ -8031,10 +8031,13 @@ with col2:
             "HORMUZ TRANSITS",
             f"🔴 CRITICAL: ~{hormuz_v:.0f} SHIPS/DAY",
             "#ff4b4b",
-            "Blockade persists; ~4 ships/day (95% collapse). "
-            "US rejection of April 27th reopening offer confirmed. "
-            "Crude/LNG flow rerouting via Cape; war-risk insurance "
-            "premia spiking globally.",
+            "Blockade persists at ~4 ships/day (~95% collapse vs "
+            "pre-war). Project Freedom launched 4 May with US "
+            "guidance for trapped vessels; first 2 US-flagged "
+            "merchant ships transited successfully. UAE Fujairah "
+            "Oil Industries Zone struck by drone same day; 3/4 "
+            "inbound cruise missiles intercepted. Crude/LNG "
+            "continuing to reroute via Cape.",
             breach=True,
             caption_key="hormuz",
             **_meta_kwargs("hormuz_daily_transit_count"),
