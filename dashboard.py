@@ -722,14 +722,6 @@ CUSTOM_CSS = """
         margin: 0 4px;
         font-weight: 800;
     }
-    /* WARNING tier — matches the established amber palette
-       (.grs-tag.grs-warn uses #ffa500). The outer ribbon stays
-       red while critical/breach items co-exist in the strip;
-       only the WARNING chip itself renders amber. */
-    .critical-ribbon .ribbon-tag.warning {
-        background: #ffa500;
-        color: #000;
-    }
     .critical-ribbon .ribbon-sep {
         color: #6b7280;
         margin: 0 0.65rem;
@@ -2665,20 +2657,9 @@ CAPTION_TEXTS = {
     "helium": {
         # Day-count is interpolated dynamically by get_card_caption()
         # using the {days_past} and {boil_off} placeholders.
-        # Warning tier — force majeure persists past boil-off threshold
-        # but smart-money equity proxy (APD) is not pricing in fab
-        # collapse yet; Reuters reports Korean fab inventory through
-        # ~June. This is the active state under the Option B softening.
-        "warning":  "Force majeure persists. Korean fab reserves "
-                    "est. through ~June (Reuters); Taiwan buffered "
-                    "by closed-loop recycling. APD ticker NOMINAL — "
-                    "leading signal, watch for inflection.",
-        # Critical tier — kept as a defensive fallback in case the
-        # gate ever escalates back (e.g. APD breach + chipmaker
-        # guidance cut). Does not currently fire under any code path.
         "critical": "Yield Collapse: {days_past} days past "
-                    "{boil_off}-day boil-off and smart-money "
-                    "equities now pricing in fab disruption.",
+                    "{boil_off}-day boil-off. 5nm/3nm chip production "
+                    "is physically compromised.",
         "nominal":  "Flow Restored: New Qatar/US supply has reached "
                     "Asian fabs.",
     },
@@ -3330,8 +3311,8 @@ def build_critical_ribbon(prices: dict, intel: dict | None = None) -> str:
 
     if helium_exhausted():
         pieces.append(
-            f'<span class="ribbon-tag warning">WARNING</span> '
-            f'HELIUM FORCE MAJEURE (DAY {helium_days_elapsed()})'
+            f'<span class="ribbon-tag">CRITICAL</span> '
+            f'HELIUM EXHAUSTED (DAY {helium_days_elapsed()})'
         )
     if CO2_BYPRODUCT_BREACH:
         pieces.append(
@@ -4366,34 +4347,6 @@ EDITORIAL_FACTS = {
         "expires_on": date(2026, 5, 28),
         "target_intel_key": "panama_canal_neopanamax_price",
     },
-    # helium-soften-2026-05-04 — fallback fact mirroring the Panama
-    # pattern. Anchors the helium spot price + tile editorial framing
-    # under the Option B softening (FORCE MAJEURE ACTIVE, not
-    # EXHAUSTED). Fires only when the live Perplexity fetch returns
-    # None for helium_spot_price_mcf; if a live number is present
-    # the live data wins. Either way the source-dump records this
-    # entry so the audit trail captures the editorial pin.
-    "helium_spot_price_mcf": {
-        "value": 800.0,
-        "set_on": date(2026, 5, 4),
-        "set_by": "helium-soften-2026-05-04 brief",
-        "rationale":
-            "Spot helium has roughly doubled since the March 2 "
-            "QatarEnergy production halt / March 4 force majeure "
-            "declaration; ~$800/Mcf consistent with Fortune / "
-            "Moody's helium outlook (April 22). Anchors the tile "
-            "editorial framing while Reuters reports Korean fab "
-            "inventory through ~June and APD equity ticker remains "
-            "nominal — fab-floor exhaustion is not yet evidenced "
-            "in smart-money signals.",
-        "primary_source":
-            "https://fortune.com/2026/04/22/"
-            "helium-forecast-outlook-iran-war-moodys/",
-        # Re-evaluate when SK Hynix / Samsung give their next
-        # public guidance on fab inventory.
-        "expires_on": date(2026, 6, 15),
-        "target_intel_key": "helium_spot_price_mcf",
-    },
     # v18+ Strategic Outlook — quarterly editorial-refresh
     # discipline. The 160-cell SCENARIO_HORIZON_PROJECTIONS
     # library is hand-authored; calibration drifts over time.
@@ -5124,19 +5077,13 @@ def adjust_probabilities(prices: dict, intel: dict | None = None,
 
     # Physical-logic gates.
     if helium_exhausted():
-        # Probability nudges retained: the physical condition
-        # (force majeure past boil-off) still constrains the
-        # downside scenarios. Trigger label softened to match
-        # the tile/ribbon Option B reframing — Reuters confirms
-        # Korean fab inventory through ~June, APD nominal.
         probs["Tail Risk"] += 8
         probs["Base Case"] -= 4
         probs["Slow Normalization"] -= 4
         _record(
-            "helium_force_majeure_gate",
-            f"Helium force majeure active — day "
-            f"{helium_days_elapsed()} past 48-day boil-off "
-            f"threshold (smart-money APD cross-check pending)",
+            "helium_exhausted_gate",
+            f"Helium past 48-day boil-off threshold ("
+            f"day {helium_days_elapsed()})",
             {"Tail Risk": +8, "Base Case": -4,
              "Slow Normalization": -4},
             value=helium_days_elapsed(),
@@ -5448,24 +5395,21 @@ def evaluate_playbook(prices: dict, intel: dict | None = None,
     if helium_exhausted():
         days = helium_days_elapsed()
         actions.append({
-            "level": "warning",
+            "level": "critical",
             "trigger": (
-                f"HELIUM FORCE MAJEURE — day {days} since QA force "
+                f"HELIUM EXHAUSTED — day {days} since QA force "
                 f"majeure (>{HELIUM_BOIL_OFF_DAYS}-day boil-off threshold)"
             ),
             "business":
-                "Monitor APD ticker and SK Hynix / Samsung "
-                "guidance; pre-position 60-day buffer on "
-                "helium-sealed BOMs. Review alternate-source "
-                "contracts and fab-leak-test gas allocations. "
-                "Smart-money equities have not yet priced in fab "
-                "collapse — leading signal still intact.",
+                "Semiconductor yield collapse imminent; fab "
+                "stockpiles depleted. Audit any product BOM that "
+                "touches helium-sealed drives, MRI cryogenics, or "
+                "fab leak-test. Activate alternate-source contracts "
+                "immediately. Escalate to executive committee.",
             "household":
-                "No immediate action required. Watch for SK Hynix "
-                "/ Samsung public guidance updates as the leading "
-                "signal for tech-product price moves; defer only "
-                "non-essential electronics purchases if those "
-                "guidance updates turn negative.",
+                "Expect tech-product price spikes (storage, GPUs, "
+                "MRI service) within 1-2 quarters. Defer "
+                "non-essential electronics purchases.",
         })
 
     if CO2_BYPRODUCT_BREACH:
@@ -8204,21 +8148,12 @@ with col2:
         _days_past = _he_days - HELIUM_BOIL_OFF_DAYS
         intel_cards.append(card_status_html(
             "INDUSTRIAL HELIUM (Qatar FM)",
-            f"DAY {_he_days} — FORCE MAJEURE ACTIVE",
-            "#ffa500",
-            f"Day {_he_days} of QatarEnergy disruption "
-            "(production halted 2 March; force majeure declared "
-            "4 March; ~30% of global helium supply offline). "
-            "Korean fab reserves estimated through approximately "
-            "June per Reuters; Taiwan less exposed via closed-loop "
-            "recycling (~70% of fabs, Frost & Sullivan). Spot "
-            "helium prices have roughly doubled since March. "
-            "Watch APD ticker and SK Hynix / Samsung guidance "
-            "for the leading signal — fab-floor exhaustion is "
-            "not yet evidenced in equities or public chipmaker "
-            "statements.",
-            breach=False,
-            warning=True,
+            f"DAY {_he_days} — EXHAUSTED",
+            "#dc2626",
+            f"{_days_past} days past physical shelf-life limit. "
+            "Semiconductor yield collapse imminent; fab floor reserves "
+            "depleted.",
+            breach=True,
             caption_key="helium",
             caption_fmt={
                 "days_past": _days_past,
