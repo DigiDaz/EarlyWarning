@@ -1590,9 +1590,12 @@ INTELLIGENCE_INSIGHTS = {
     ),
     "helium_boiloff": (
         "Past the 48-day liquid-helium boil-off threshold from the "
-        "Qatar force majeure. Fab and MRI stockpiles are physically "
-        "depleted — this is a shelf-life event, not a price event. "
-        "Activate alternate-source contracts now."
+        "Qatar force majeure. Korean fab reserves estimated through "
+        "approximately June (Reuters); Taiwan less exposed via "
+        "closed-loop recycling. APD equity proxy NOMINAL — smart "
+        "money has not yet priced in fab disruption. Pre-position "
+        "60-day buffer on helium-sealed BOMs and watch SK Hynix / "
+        "Samsung guidance for the leading inflection signal."
     ),
     "equity_critical": (
         "An equity-proxy spike of >=12% on a single session is the "
@@ -2512,6 +2515,32 @@ def helium_exhausted():
         # plausibly recovered. Don't fire the breach gate.
         return False
     return True
+
+
+def helium_severity_tier():
+    """Single source of truth for the helium severity classification.
+
+    Consulted by both the Industrial Helium tile (Logistics & Inputs
+    Intel column) and the Threshold Monitor row so the two surfaces
+    stay aligned. Earlier the tile rendered amber WARNING via a
+    hard-coded `warning=True` while the threshold row rendered red
+    BREACHED via a separate code path — same fact, two severities.
+
+    Returns:
+        None       — gate is False, no helium severity stamp.
+        "warning"  — gate is True and smart-money equity proxy (APD)
+                     has not breached. Force majeure persists but the
+                     downstream-fab-collapse signal is not yet in.
+                     This is today's default state.
+        "critical" — reserved for future smart-money cross-check
+                     overlay (queued separately): gate is True AND
+                     APD equity ticker has breached AND chipmaker
+                     guidance has turned negative. Not yet wired —
+                     no caller produces this tier today.
+    """
+    if not helium_exhausted():
+        return None
+    return "warning"
 
 
 def jet_spike_pct(jet_value):
@@ -8219,13 +8248,22 @@ with col2:
             **_meta_kwargs("malacca_severity"),
         ))
 
-    if helium_exhausted():
+    _he_tier = helium_severity_tier()
+    if _he_tier is not None:
         _he_days = helium_days_elapsed()
         _days_past = _he_days - HELIUM_BOIL_OFF_DAYS
+        # Header / colour follow the tier from the shared helper so
+        # the threshold row and this tile cannot drift apart.
+        _he_header = (
+            f"DAY {_he_days} — FORCE MAJEURE ACTIVE"
+            if _he_tier == "warning"
+            else f"DAY {_he_days} — EXHAUSTED"
+        )
+        _he_colour = "#ffa500" if _he_tier == "warning" else "#dc2626"
         intel_cards.append(card_status_html(
             "INDUSTRIAL HELIUM (Qatar FM)",
-            f"DAY {_he_days} — FORCE MAJEURE ACTIVE",
-            "#ffa500",
+            _he_header,
+            _he_colour,
             f"Day {_he_days} of QatarEnergy disruption "
             "(production halted 2 March; force majeure declared "
             "4 March; ~30% of global helium supply offline). "
@@ -8238,8 +8276,8 @@ with col2:
             "is procurement diversification toward US sources, "
             "NOT Qatari flow restoration. Watch APD ticker and "
             "SK Hynix / Samsung guidance for the leading signal.",
-            breach=False,
-            warning=True,
+            breach=(_he_tier == "critical"),
+            warning=(_he_tier == "warning"),
             caption_key="helium",
             caption_fmt={
                 "days_past": _days_past,
@@ -8749,21 +8787,32 @@ with col3:
         insight_key=co2_key, breached=co2_breach,
     ))
 
-    # Helium boil-off (days since QA force majeure).
+    # Helium boil-off (days since QA force majeure). Severity tier
+    # comes from the shared helium_severity_tier() helper so this
+    # row stays aligned with the Industrial Helium tile in the
+    # middle column. Earlier this row hard-coded a binary
+    # BREACHED-vs-NOMINAL while the tile rendered amber WARNING —
+    # the helper closes that surface inconsistency.
     _he_days = helium_days_elapsed()
-    if helium_exhausted():
-        he_live = f"day {_he_days} / {HELIUM_BOIL_OFF_DAYS}"
+    _he_row_tier = helium_severity_tier()
+    he_live = f"day {_he_days} / {HELIUM_BOIL_OFF_DAYS}"
+    if _he_row_tier == "critical":
         he_status = (
             '<span style="color:#dc2626;">● BREACHED (EXHAUSTED)</span>'
         )
-        he_breach, he_key = True, "helium_boiloff"
+        he_breach, he_warn, he_key = True, False, "helium_boiloff"
+    elif _he_row_tier == "warning":
+        he_status = (
+            '<span style="color:#eab308;">'
+            '● WARNING (FORCE MAJEURE)</span>'
+        )
+        he_breach, he_warn, he_key = False, True, "helium_boiloff"
     else:
-        he_live = f"day {_he_days} / {HELIUM_BOIL_OFF_DAYS}"
         he_status = '<span style="color:#10b981;">● NOMINAL</span>'
-        he_breach, he_key = False, None
+        he_breach, he_warn, he_key = False, False, None
     threshold_rows_html.append(render_threshold_row_html(
         "Helium boil-off (QA FM)", he_live, he_status,
-        insight_key=he_key, breached=he_breach,
+        insight_key=he_key, breached=he_breach, warning=he_warn,
     ))
 
     # Jet fuel "Payload Displacement" gate (>55% above baseline).
